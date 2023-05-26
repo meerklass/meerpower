@@ -44,7 +44,7 @@ def P_noise(A_sky,theta_FWHM,t_tot,N_dish,nu,lz,T_sys=None,deltav=1,epsilon=1,hi
         P_N[i] = V_cell * sigma_N[i]**2
     return P_N
 
-def gen_noise_map(hitmap,nu,T_sys,dims):
+def gen_noise_map(hitmap,W,nu,T_sys,dims):
     ''' Based on the counts/hitmap of data, this will generate the expected thermal noise
     Using eq5.1 in https://arxiv.org/pdf/1501.03989.pdf
     '''
@@ -53,7 +53,7 @@ def gen_noise_map(hitmap,nu,T_sys,dims):
     deltav *= 1e6 # Convert MHz to Hz
     t_p = hitmap * 2 # time per pointing [secs] based on MeerKAT 2 seconds per time stamp
     sigma_N = np.zeros((nx,ny,nz))
-    sigma_N = T_sys / np.sqrt( 2 * deltav * t_p)
+    sigma_N[W==1] = T_sys / np.sqrt( 2 * deltav * t_p[W==1])
     noise = np.random.normal(0,sigma_N,(nx,ny,nz))
     noise[hitmap<1] = 0
     return noise
@@ -165,7 +165,8 @@ def smooth(dT,map_ra,map_dec,nu, D_dish,gamma=1,freqdep=False):
     r0 = np.min(ra) + rawidth/2 # central ra coordinate - Gaussian peaks here
     d0 = np.min(dec) + decwidth/2 # central dec coordinate - Gaussian peaks here
     '''
-    r,d = map_ra,map_dec
+    dT_smooth = np.copy(dT)
+    r,d = np.copy(map_ra),np.copy(map_dec)
     r[r>180] = r[r>180]-360
     r0 = np.median(r)
     d0 = np.median(d)
@@ -178,8 +179,8 @@ def smooth(dT,map_ra,map_dec,nu, D_dish,gamma=1,freqdep=False):
         if freqdep==True: gaussian = np.exp(-0.5 * (((r - r0)/sigma[j])**2 + ((d - d0)/sigma[j])**2))
         else: gaussian = np.exp(-0.5 * (((r - r0)/sigma)**2 + ((d - d0)/sigma)**2))
         gaussian = gaussian/np.sum(gaussian) #normalise gaussian so that all pixels sum to 1
-        dT[:,:,j] = signal.fftconvolve(dT[:,:,j], gaussian, mode='same')
-    return dT
+        dT_smooth[:,:,j] = signal.fftconvolve(dT[:,:,j], gaussian, mode='same')
+    return dT_smooth
 
 def weighted_resmooth(dT, w, ra,dec,nu, D_dish, gamma=1):
     print('\nTODO: resmoothing not currently accounting for different pixels sizes across map')

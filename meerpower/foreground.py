@@ -719,16 +719,16 @@ def change_coord(m, coord):
     new_pix = hp.ang2pix(nside, *new_ang)
     return m[..., new_pix]
 
-def FGPeturbations(dT_MK,W_HI,nu):
+def FGPeturbations(dT_MK,W,nu):
     '''Use real data to generate perturbations in the simulated FG spectra so they
     are no longer perfectly smooth continuum signals
     '''
     nx,ny,nz = np.shape(dT_MK)
-    dT_MK[W_HI==0] = 0 # Set back to zero for more poly fitting
+    dT_MK[W==0] = 0 # Set back to zero for more poly fitting
     perturbs = np.ones((nx,ny,nz))
     for i in range(nx):
         for j in range(ny):
-            if W_HI[i,j,0]==0: continue
+            if W[i,j,0]==0: continue
             poly = model.FitPolynomial(nu,dT_MK[i,j,:],n=2)
             perturbs[i,j,:] = dT_MK[i,j,:]/poly
     return perturbs

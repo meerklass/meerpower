@@ -55,6 +55,33 @@ def MapTrim(map,w,W,counts,ra,dec,ramin=334,ramax=357,decmin=-35,decmax=-26.5):
     map[trimcut],w[trimcut],W[trimcut],counts[trimcut] = 0,0,0,0
     return map,w,W,counts
 
+#def ReadInLevel62021_Sims(dT_MK,W,counts,dims,ra,dec,nu,PerturbFGs=False,SecondPatch=False,doBeam=False,T_sys=16e3,doRSD=False):
+def ReadIn_Sim(dT_MK,W,counts,dims,ra,dec,nu,PerturbFGs=False,SecondPatch=False,doBeam=False,T_sys=16e3,doRSD=False):
+    import telescope
+    import foreground
+    # SecondPatch: Set True to load different foreground patch to test dish cross-correlations
+    # T_sys: System tempertaure for noise caluclation. Set Zero for no noise. Default 16K from Jingying's paper
+    if doRSD==False: T_HI = np.load('/idia/projects/hi_im/crosspower/2021/sims/T_HI_MultiDark_noRSD.npy')
+    if doRSD==True: T_HI = np.load('/idia/projects/hi_im/crosspower/2021/sims/T_HI_MultiDark_wRSD.npy')
+    # Remove a redshift bin to match data:
+    T_HI = T_HI[:,:,:-1]
+    dT_HI = T_HI - np.mean(T_HI)
+    T_FG = np.load('/idia/projects/hi_im/crosspower/2021/sims/T_FG.npy')[:,:,:-1]
+    if SecondPatch==True: T_FG2 = np.load('/idia/projects/hi_im/crosspower/2021/sims/T_FG_patch2.npy')[:,:,:-1]
+    if PerturbFGs==False:
+        if SecondPatch==False: T_obs = T_HI + T_FG
+        if SecondPatch==True: T_obs = T_HI + T_FG2
+    if PerturbFGs==True:
+        if SecondPatch==False: T_obs = T_HI + T_FG * foreground.FGPeturbations(dT_MK,W,nu)
+        if SecondPatch==True: T_obs = T_HI + T_FG2 * foreground.FGPeturbations(dT_MK,W,nu)
+    # Include Beam:
+    if doBeam==True: dT_HI = telescope.smooth(dT_HI,ra,dec,nu,D_dish=13.5)
+    if doBeam==True: T_obs = telescope.smooth(T_obs,ra,dec,nu,D_dish=13.5)
+    # Include Noise:
+    if T_sys!=0: T_obs += telescope.gen_noise_map(counts,W,nu,T_sys,dims)
+    dT_HI[W==0],T_obs[W==0] = 0,0
+    return dT_HI,T_obs
+
 def ReadInLevel62021(HI_filename,countsfile,numin=970.95,numax=1075.84,nights=None,dishes=None,returnmapcoords=False,level5path=None,level6maskpath=None,manualflagcalib=False,CleanLev5=False):
     ''' For initialising cross-correlations using Jingying's level6 2021 data.
     dishes: set None to read in all combined dishes from level6
