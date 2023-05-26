@@ -60,7 +60,7 @@ def gen_noise_map(hitmap,nu,T_sys,dims):
 
 def getbeampars(D_dish,nu,gamma=None,verbose=False):
     # Return beam size for given dish-size and frequency in MHz
-    d_c = cosmo.D_com( HItools.Freq2Red(nu)) # Comoving distance to frequency bin
+    d_c = cosmo.d_com( HItools.Freq2Red(nu)) # Comoving distance to frequency bin
     theta_FWHM = np.degrees(c / (nu*1e6 * D_dish)) # freq-dependent beam size
     sig_beam = theta_FWHM/(2*np.sqrt(2*np.log(2)))
     R_beam = d_c * np.radians(sig_beam) #Beam sigma

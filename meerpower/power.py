@@ -159,11 +159,9 @@ def getkspec(dims,FullPk=False):
     kspec[0,0,0] = 0.
     return kspec,muspec,indep
 
-def PerpParaPk(datgrid1,datgrid2,dims,kperpbins,kparabins,corrtype='HIauto',w1=None,w2=None,W1=None,W2=None,FullPk=False):
-    '''Return 2D image of P(k_perp,k_para)
-    '''
-    #print('\nCalculating P(k_perp,k_para)...')
-    pkspec = getpkspec(datgrid1,datgrid2,dims,corrtype,w1,w2,W1,W2)
+def Pk2D(f1,f2,dims,kperpbins,kparabins,corrtype='HIauto',w1=None,w2=None,W1=None,W2=None,FullPk=False):
+    '''Return 2D image of P(k_perp,k_para)'''
+    pkspec = getpkspec(f1,f2,dims,corrtype,w1,w2,W1,W2)
     pk2d,nmodes = bin2DPk(pkspec,dims,kperpbins,kparabins,FullPk)
     return pk2d,nmodes
 

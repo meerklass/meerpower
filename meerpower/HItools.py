@@ -1,8 +1,11 @@
 import numpy as np
-from astropy.cosmology import Planck15 as cosmo
-import astropy
-from astropy.cosmology import Planck15 as cosmo
+import cosmo
+#astropy_cosmo = cosmo.astropy_cosmo()
+#from astropy.cosmology import Planck15 as cosmo
+#import astropy
+#from astropy.cosmology import Planck18 as cosmo
 # Some constants:
+import astropy
 from astropy import constants
 c = astropy.constants.c.value #m/s - speed of light
 h_P = constants.h.value #m^2 kg / s - Planck's constant
@@ -10,7 +13,8 @@ k_B = constants.k_B.value #m^2 kg / s^2 K^1 - Boltzmann's constant
 A_12 = 2.876e-15 #Hz - Einstein coefficient (D.Alonso https://arxiv.org/pdf/1405.1751.pdf)
 m_H = 1.6737236e-27 #kg  - Hydrogen atom mass
 M_sun = constants.M_sun.value #kg - Solar mass
-H0 = cosmo.H(0).value #km / Mpc s - Hubble constant
+#H0 = cosmo.H(0).value #km / Mpc s - Hubble constant
+H0 = cosmo.H(0)
 h = H0/100
 v_21cm = 1420.405751#MHz
 
@@ -36,8 +40,8 @@ def OmegaHImodel(z):
 
 def Tbar(z,OmegaHI):
     # Battye+13 formula
-    Hz = cosmo.H(z).value #km / Mpc s
-    H0 = cosmo.H(0).value #km / Mpc s
+    Hz = cosmo.H(z) #km / Mpc s
+    H0 = cosmo.H(0) #km / Mpc s
     h = H0/100
     return 180 * OmegaHI * h * (1+z)**2 / (Hz/H0)
 
@@ -72,7 +76,7 @@ def BrightnessTemps(z,dv,M_HI,pixarea):
     M_HI = M_HI * M_sun/h #convert to kg
     #Below following D.Alonso 2014 (https://arxiv.org/pdf/1405.1751.pdf)
     #   and S.Cunnington et al. (https://arxiv.org/pdf/1904.01479.pdf):
-    r = cosmo.comoving_distance(z).value #Mpc
+    r = cosmo.d_com(z)/h #Mpc [no h]
     r = r * 3.086e22 #Convert from Mpc to metres
     dOmega = np.radians(np.sqrt(pixarea))**2 #square size of pixel in radians
     T_HI = 3*h_P*c**2*A_12/(32*np.pi*m_H*k_B*v_21cm*1e6) * 1/((1+z)*r)**2 * M_HI/(deltav*dOmega)

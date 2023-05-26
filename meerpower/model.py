@@ -1,10 +1,10 @@
 import numpy as np
 import scipy
 from scipy.interpolate import interp1d
-import powerspec
+import power
 import HItools
 import grid
-import plottools
+import plot
 import matplotlib.pyplot as plt
 H_0 = 67.7 # Planck15
 
@@ -73,7 +73,7 @@ def PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1
     if gridinterp==True: # Do full grid interp, creates spiky model due to uneven distribution of kperp/kpara pixels into bins
         pkspecmod = Damp * Tbar1*Tbar2 * b1*b2*( r + (beta1 + beta2)*muspec**2 + beta1*beta2*muspec**4 ) / (1 + (kspec*muspec*sig_v/H_0)**2) * Pmod(kspec) + P_N
         if w1 is not None or w2 is not None or W1 is not None or W2 is not None: # Convolve with window
-            pkspecmod = powerspec.getpkconv(pkspecmod,dims,w1,w2,W1,W2)
+            pkspecmod = power.getpkconv(pkspecmod,dims,w1,w2,W1,W2)
         return pkspecmod
     ############################################################################
 
@@ -99,7 +99,7 @@ def PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1
 
     lxmod,lymod,lzmod = 1000,1000,1000
     dims = [lxmod,lymod,lzmod,nxmod,nymod,nzmod]
-    kspecmod,muspecmod,indep = powerspec.getkspec(dims,FullPk=True)
+    kspecmod,muspecmod,indep = power.getkspec(dims,FullPk=True)
     kspecmod[kspecmod==0] = 1 # avoid model interpolation error from k=0
 
     Damp = B_beam(muspecmod,kspecmod,R_beam1)*B_beam(muspecmod,kspecmod,R_beam2)
@@ -148,7 +148,7 @@ def PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1
         #pkspecmod[kspec==1] = 0
     '''
     if w1 is not None or w2 is not None or W1 is not None or W2 is not None: # Convolve with window
-        pkspecmod = powerspec.getpkconv(pkspecmod,dims,w1,w2,W1,W2)
+        pkspecmod = power.getpkconv(pkspecmod,dims,w1,w2,W1,W2)
     return pkspecmod
 
 def PkMod(Pmod,dims,kbins,b1=1,b2=1,f=0,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,sig_N=0,w1=None,w2=None,W1=None,W2=None,doMultipole=False,Pk2D=False,kperpbins=None,kparabins=None,MatterRSDs=False,interpkbins=False,lwin=None,pixwin=None,s_para=0,Damp=None,gridinterp=False):
@@ -157,17 +157,17 @@ def PkMod(Pmod,dims,kbins,b1=1,b2=1,f=0,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_
     #if len(dims)==6: lx,ly,lz,nx,ny,nz = dims
     #if len(dims)==9: lx,ly,lz,nx,ny,nz,x0,y0,z0 = dims
     if interpkbins==True: # If True, interpolate model Pk over same grid and bin using same pipeline as data
-        kspec,muspec,indep = powerspec.getkspec(dims,FullPk=True)
+        kspec,muspec,indep = power.getkspec(dims,FullPk=True)
         pkspecmod = PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,MatterRSDs,lwin,pixwin,s_para,Damp=Damp,gridinterp=gridinterp)
         if doMultipole==False:
             if Pk2D==False:
-                pkmod,k,nmodes = powerspec.binpk(pkspecmod,dims[:6],kbins,FullPk=True,doindep=False)
+                pkmod,k,nmodes = power.binpk(pkspecmod,dims[:6],kbins,FullPk=True,doindep=False)
                 return pkmod,k,nmodes
             if Pk2D==True:
-                pk2d,nmodes = powerspec.bin2DPk(pkspecmod,dims[:6],kperpbins,kparabins,FullPk=True)
+                pk2d,nmodes = power.bin2DPk(pkspecmod,dims[:6],kperpbins,kparabins,FullPk=True)
                 return pk2d,nmodes
         if doMultipole==True:
-            pk0,pk2,pk4,k,nmodes = powerspec.binpole(pkspecmod,dims[:6],kbins,FullPk=True,doindep=False)
+            pk0,pk2,pk4,k,nmodes = power.binpole(pkspecmod,dims[:6],kbins,FullPk=True,doindep=False)
             return pk0,pk2,pk4,k,nmodes
     if interpkbins==False: # If False, run a more approximate model build, using integration over analytical function
         if doMultipole==False:
@@ -355,7 +355,7 @@ def JacknifeSpectrum(dT_HI,n_g,dims,kbins,njack,T,w1=None,w2=None,W1=None,W2=Non
         w1_jack_rg,dims = grid.regrid(blackman*w1_jack,ra,dec,nu)
         W1_jack_rg,dims = grid.regrid(blackman*W1_jack,ra,dec,nu)
 
-        pk_gHI,k,nmodes = powerspec.Pk(dT_HI_jack,n_g,dims,kbins,corrtype='Cross',w1=w1_jack,w2=w2,W1=W1_jack,W2=W2)
+        pk_gHI,k,nmodes = power.Pk(dT_HI_jack,n_g,dims,kbins,corrtype='Cross',w1=w1_jack,w2=w2,W1=W1_jack,W2=W2)
         ### Apply foreground transfer function to power spectra:
         pk_gHI_TF = pk_gHI/T
         PS_jack[i] = pk_gHI_TF
@@ -397,7 +397,7 @@ def JacknifeSpectrum(dT_HI,n_g,dims,kbins,njack,T,w1=None,w2=None,W1=None,W2=Non
                 plt.show()
                 exit()
 
-                pk_gHI,k,nmodes = powerspec.Pk(dT_HI_jack,n_g,dims,kbins,corrtype='Cross',w1=w1_jack,w2=w2,W1=W1_jack,W2=W2)
+                pk_gHI,k,nmodes = power.Pk(dT_HI_jack,n_g,dims,kbins,corrtype='Cross',w1=w1_jack,w2=w2,W1=W1_jack,W2=W2)
                 ### Apply foreground transfer function to power spectra:
                 pk_gHI_TF = pk_gHI/T
                 PS_jack[jackcount] = pk_gHI_TF

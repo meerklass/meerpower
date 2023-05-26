@@ -1,5 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
+'''
 import scipy.ndimage
 import scipy as sp
 from astropy.cosmology import Planck15 as cosmo
@@ -13,77 +13,7 @@ from astropy.wcs.utils import pixel_to_skycoord
 from astropy.io import fits
 from astropy.wcs import WCS
 import astropy.coordinates as ac
-v_21cm = 1420.405751#MHz
-h = cosmo.H(0).value/100 # use to convert astopy Mpc distances to Mpc/h
-
-def regrid(map,ra,dec,nu,pad=0,order=0,mode='constant'):
-    # Re-grid the sky-coordinates (ra,dec,freq) map into a Cartesian comoving
-    #  grid (x,y,z) [Mpc/h] physical distance units.
-    # map: input (ra,dec,nu) structure with smallest frequency first i.e. nu[0] - np.min(nu)
-    # ra,dec,nu : coordinates for each pixel in map. RA and Dec in [deg] nu in [MHz]
-    ''' Function is essentially rewritten from Yi-Chao/Kiyo's method into condensed format
-          to work in crosspower pipeline. Function is thereofore based on the code in:
-     - https://github.com/meerklass/meerKAT_sim/blob/ycli/sim/meerKAT_sim/ps/physical_gridding.py
-     - https://github.com/kiyo-masui/analysis_IM/blob/master/map/physical_gridding.py
-    '''
-    nx,ny,nz = np.shape(map)
-    norig = np.copy([nx,ny,nz])
-    ### Define the grid size:
-    dec_centre = np.mean(dec)
-    rafact = np.cos(np.radians(dec_centre))
-    thetax, thetay = np.abs(ra[0]-ra[-1]), np.abs(dec[0]-dec[-1]) # span in RA and Dec
-    thetax *= rafact
-    z1 = v_21cm/np.max(nu) - 1
-    z2 = v_21cm/np.min(nu) - 1
-    c1 = cosmo.comoving_distance(z1).value * h
-    c2 = cosmo.comoving_distance(z2).value * h
-    c_center = (c1 + c2) / 2
-    lx,ly,lz = np.radians(thetax)*c2, np.radians(thetay)*c2 , c2-c1
-    # Enlarge cube size by `pad` in each dimension, so raytraced cube sits exactly
-    #   within the gridded points. Set pad=0 if map already comfortably inside grid
-    #   boundaries:
-    if pad==0: nxpad,nypad,nzpad = nx,ny,nz
-    else:
-        nxpad,nypad,nzpad = nx+pad,ny+pad,nz+pad
-        lx,ly,lz = lx*nxpad/nx,ly*nypad/ny,lz*nzpad/nz
-        c1 = c_center - (c_center - c1) * (nzpad) / nz
-        c2 = c_center + (c2 - c_center) * (nzpad) / nz
-    dz = abs(c2 - c1) / (nzpad - 1)
-    dz_centre = c1 + dz * (nzpad / 2)
-    x_axis = np.linspace(-lx/2,lx/2,nxpad)
-    y_axis = np.linspace(-ly/2,ly/2,nypad)
-    radius_axis = np.linspace( dz_centre+lz/2, dz_centre-lz/2, nzpad ) #start from largest distance and descend since nu starts small
-
-    # Obtain a redshift/freq corresponding to lz radius array
-    _xp = np.linspace(z1 * 0.9, z2 * 1.1, 2000)
-    _fp = cosmo.comoving_distance(_xp).value * h
-    za = np.interp(radius_axis, _fp, _xp)
-    nua = v_21cm / (1 + za)
-    gridy, gridx = np.meshgrid(y_axis, x_axis)
-    interpol_grid = np.zeros((3, nxpad, nypad))
-    ## Switch axes order to Yi-Chao's convention:
-    map = np.moveaxis(map,-1,0)
-
-    ### Populate map in Cartesian-comoving space:
-    physmap = np.zeros((nzpad,nxpad,nypad)) # This will be the final map in physical comoving space
-    mask = np.ones_like(physmap)
-    for i in range(nzpad):
-        interpol_grid[0, :, :] = (nua[i] - nu[0]) / (nu[-1] - nu[0]) * nz
-        proper_z = cosmo.comoving_transverse_distance(za[i]).value * h
-        angscale = ((proper_z * u.deg).to(u.rad)).value
-        interpol_grid[1, :, :] = gridx/angscale/thetax*nx + nx/2
-        interpol_grid[2, :, :] = gridy/angscale/thetay*ny + ny/2
-        physmap[i, :, :] = sp.ndimage.map_coordinates(map, interpol_grid, order=order, mode=mode)
-        interpol_grid[1, :, :] = np.logical_or(interpol_grid[1, :, :] >= nx, interpol_grid[1, :, :] < 0)
-        interpol_grid[2, :, :] = np.logical_or(interpol_grid[2, :, :] >= ny, interpol_grid[2, :, :] < 0)
-        mask = np.logical_not(np.logical_or(interpol_grid[1, :, :], interpol_grid[2, :, :]))
-        physmap *= mask
-    ## Switch back axes order to Steves's convention:
-    physmap = np.moveaxis(physmap,0,-1)
-    dx,dy,dz = (x_axis[1]-x_axis[0]),(y_axis[1]-y_axis[0]),(radius_axis[1]-radius_axis[0])
-    lx,ly,lz = lx+dx,ly+dy,lz+dz
-    dims = [lx,ly,lz,nxpad,nypad,nzpad]
-    return physmap,dims
+'''
 
 from astropy.coordinates import SkyCoord
 from astropy import units as u
@@ -91,7 +21,8 @@ from astropy.cosmology import Planck18 as cosmo
 import HItools
 h = cosmo.H(0).value/100 # use to convert astopy Mpc distances to Mpc/h
 
-def regrid_Steve(map,ra,dec,nu,frame='icrs',W=None,ndim=None):
+def comoving(map,ra,dec,nu,frame='icrs',W=None,ndim=None):
+    '''regrid (RA,Dec,z) map into comoving Cartesian coordinates (Lx,Ly,Lz [Mpc/h])'''
     if ndim is None: nx,ny,nz = np.shape(map)
     else: nx,ny,nz = ndim
     z = HItools.Freq2Red(nu)
@@ -111,7 +42,7 @@ def regrid_Steve(map,ra,dec,nu,frame='icrs',W=None,ndim=None):
     dims0 = [lx,ly,lz,nx,ny,nz,x0,y0,z0]
     return physmap,dims,dims0
 
-def SkyCoordtoCartesian(ra,dec,z,ramean_arr=None,decmean_arr=None,doTile=True,LoScentre=True,frame='icrs'):
+def SkyCoordtoCartesian(ra_,dec_,z,ramean_arr=None,decmean_arr=None,doTile=True,LoScentre=True,frame='icrs'):
     '''Convert (RA,Dec,z) sky coordinates into Cartesian (x,y,z) comoving coordinates
     with [Mpc/h] units.
     doTile: set True (default) if input (ra,dec,z) are coordinates of map pixels of lengths ra=(nx,ny),dec=(nz,ny),z=nz)
@@ -121,6 +52,7 @@ def SkyCoordtoCartesian(ra,dec,z,ramean_arr=None,decmean_arr=None,doTile=True,Lo
     ramean_arr/decmean_arr: arrays to use for mean ra/dec values. Use if want to subtract the exact same means as done for
                               another map e.g if gridding up galaxy map and want to subtract the IM mean for consistency.
     '''
+    ra = np.copy(ra_);dec = np.copy(dec_) # Define new arrays so amends don't effect global coordinates
     if ramean_arr is None: ramean_arr = ra
     if decmean_arr is None: decmean_arr = dec
     if LoScentre==True: # subtract RA Dec means to align the footprint with ra=dec=0 for LoS
@@ -257,3 +189,72 @@ def AstropyGridding(ra,dec,z,nu,galaxyweights=None,data=None):
         x_pix_list,y_pix_list = skycoord_to_pixel(p_list,w) #observation (ra,dec) to pix
         map[:,:,i] = np.histogram2d(x_pix_list,y_pix_list,bins=(xbins,ybins),weights=galaxyweights[zmask])[0]
     return map
+
+def regrid_Kiyo(map,ra,dec,nu,pad=0,order=0,mode='constant'):
+    # Re-grid the sky-coordinates (ra,dec,freq) map into a Cartesian comoving
+    #  grid (x,y,z) [Mpc/h] physical distance units.
+    # map: input (ra,dec,nu) structure with smallest frequency first i.e. nu[0] - np.min(nu)
+    # ra,dec,nu : coordinates for each pixel in map. RA and Dec in [deg] nu in [MHz]
+    ''' Function is essentially rewritten from Yi-Chao/Kiyo's method into condensed format
+          to work in crosspower pipeline. Function is thereofore based on the code in:
+     - https://github.com/meerklass/meerKAT_sim/blob/ycli/sim/meerKAT_sim/ps/physical_gridding.py
+     - https://github.com/kiyo-masui/analysis_IM/blob/master/map/physical_gridding.py
+    '''
+    nx,ny,nz = np.shape(map)
+    norig = np.copy([nx,ny,nz])
+    ### Define the grid size:
+    dec_centre = np.mean(dec)
+    rafact = np.cos(np.radians(dec_centre))
+    thetax, thetay = np.abs(ra[0]-ra[-1]), np.abs(dec[0]-dec[-1]) # span in RA and Dec
+    thetax *= rafact
+    z1 = v_21cm/np.max(nu) - 1
+    z2 = v_21cm/np.min(nu) - 1
+    c1 = cosmo.comoving_distance(z1).value * h
+    c2 = cosmo.comoving_distance(z2).value * h
+    c_center = (c1 + c2) / 2
+    lx,ly,lz = np.radians(thetax)*c2, np.radians(thetay)*c2 , c2-c1
+    # Enlarge cube size by `pad` in each dimension, so raytraced cube sits exactly
+    #   within the gridded points. Set pad=0 if map already comfortably inside grid
+    #   boundaries:
+    if pad==0: nxpad,nypad,nzpad = nx,ny,nz
+    else:
+        nxpad,nypad,nzpad = nx+pad,ny+pad,nz+pad
+        lx,ly,lz = lx*nxpad/nx,ly*nypad/ny,lz*nzpad/nz
+        c1 = c_center - (c_center - c1) * (nzpad) / nz
+        c2 = c_center + (c2 - c_center) * (nzpad) / nz
+    dz = abs(c2 - c1) / (nzpad - 1)
+    dz_centre = c1 + dz * (nzpad / 2)
+    x_axis = np.linspace(-lx/2,lx/2,nxpad)
+    y_axis = np.linspace(-ly/2,ly/2,nypad)
+    radius_axis = np.linspace( dz_centre+lz/2, dz_centre-lz/2, nzpad ) #start from largest distance and descend since nu starts small
+
+    # Obtain a redshift/freq corresponding to lz radius array
+    _xp = np.linspace(z1 * 0.9, z2 * 1.1, 2000)
+    _fp = cosmo.comoving_distance(_xp).value * h
+    za = np.interp(radius_axis, _fp, _xp)
+    nua = v_21cm / (1 + za)
+    gridy, gridx = np.meshgrid(y_axis, x_axis)
+    interpol_grid = np.zeros((3, nxpad, nypad))
+    ## Switch axes order to Yi-Chao's convention:
+    map = np.moveaxis(map,-1,0)
+
+    ### Populate map in Cartesian-comoving space:
+    physmap = np.zeros((nzpad,nxpad,nypad)) # This will be the final map in physical comoving space
+    mask = np.ones_like(physmap)
+    for i in range(nzpad):
+        interpol_grid[0, :, :] = (nua[i] - nu[0]) / (nu[-1] - nu[0]) * nz
+        proper_z = cosmo.comoving_transverse_distance(za[i]).value * h
+        angscale = ((proper_z * u.deg).to(u.rad)).value
+        interpol_grid[1, :, :] = gridx/angscale/thetax*nx + nx/2
+        interpol_grid[2, :, :] = gridy/angscale/thetay*ny + ny/2
+        physmap[i, :, :] = sp.ndimage.map_coordinates(map, interpol_grid, order=order, mode=mode)
+        interpol_grid[1, :, :] = np.logical_or(interpol_grid[1, :, :] >= nx, interpol_grid[1, :, :] < 0)
+        interpol_grid[2, :, :] = np.logical_or(interpol_grid[2, :, :] >= ny, interpol_grid[2, :, :] < 0)
+        mask = np.logical_not(np.logical_or(interpol_grid[1, :, :], interpol_grid[2, :, :]))
+        physmap *= mask
+    ## Switch back axes order to Steves's convention:
+    physmap = np.moveaxis(physmap,0,-1)
+    dx,dy,dz = (x_axis[1]-x_axis[0]),(y_axis[1]-y_axis[0]),(radius_axis[1]-radius_axis[0])
+    lx,ly,lz = lx+dx,ly+dy,lz+dz
+    dims = [lx,ly,lz,nxpad,nypad,nzpad]
+    return physmap,dims

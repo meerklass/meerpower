@@ -5,80 +5,73 @@ from scipy import integrate
 from scipy.interpolate import interp1d
 c_km = 299792.458 #m/s
 
-def SetCosmology(builtincosmo='Planck18',z=0,UseCamb=True):
-    global UseCamb_global; UseCamb_global = UseCamb
-    ### Use below if using camb
-    if UseCamb==True:
-        import camb
-        from camb import model, initialpower
-        global H_0
-        global h
-        global D_z # Growth function D(z)
-        global Om0
-        global Ob0
-        global n_s
-        global A_s
-        global delta_c
-        if builtincosmo=='WMAP1':
-            H_0 = 73 # [km/(Mpc s)]
-            h = H_0/100
-            Om0 = 0.25
-            Ob0 = 0.045 # Omega_b
-            n_s = 0.99
-        if builtincosmo=='Planck15':
-            H_0 = 67.7 # [km/(Mpc s)]
-            h = H_0/100
-            Om0 = 0.307
-            Ob0 = 0.0486 # Omega_b
-            n_s = 0.968
-        if builtincosmo=='Planck18':
-            H_0 = 67.4 # [km/(Mpc s)]
-            h = H_0/100
-            Om0 = 0.315 # Omega_m
-            Ob0 = 0.0489 # Omega_b
-            n_s = 0.965
-        A_s = 2.14e-9 # Scalar amplitude
-        D_z = D(z) # Growth Function (normalised to unity for z=0)
-        delta_c = 1.686
-        GetModelPk(z,1e-4,1e0,NonLinear=False) # Use to set global transfer function T
-    else:
+def SetCosmology(builtincosmo='Planck18',z=0,UseAstropy=True):
+    # UseAstropy: Set True to use astropy (where possible) for parameters and distances
+    #             Set False to instead use manual calculations of parameters and distances
+    global astropy; astropy = UseAstropy
+    import camb
+    from camb import model, initialpower
+    global H_0
+    global h
+    global D_z # Growth function D(z)
+    global Om0
+    global Ob0
+    global n_s
+    global A_s
+    global delta_c
+    if builtincosmo=='WMAP1':
+        if astropy==False: H_0 = 73 # [km/(Mpc s)]
+        Om0 = 0.25
+        Ob0 = 0.045 # Omega_b
+        n_s = 0.99
+    if builtincosmo=='Planck15':
+        if astropy==False: H_0 = 67.7 # [km/(Mpc s)]
+        Om0 = 0.307
+        Ob0 = 0.0486 # Omega_b
+        n_s = 0.968
+    if builtincosmo=='Planck18':
+        if astropy==False: H_0 = 67.4 # [km/(Mpc s)]
+        Om0 = 0.315 # Omega_m
+        Ob0 = 0.0489 # Omega_b
+        n_s = 0.965
+    if astropy==True:
         global cosmo
-        global cosmoNBK
-        from nbodykit.lab import cosmology
-        if builtincosmo=='Planck15':
-            from astropy.cosmology import Planck15 as cosmo
-            cosmoNBK = cosmology.Planck15
+        if builtincosmo=='Planck15': from astropy.cosmology import Planck15 as cosmo
+        if builtincosmo=='Planck18': from astropy.cosmology import Planck18 as cosmo
+        H_0 = cosmo.H(0).value
+    h = H_0/100
+    A_s = 2.14e-9 # Scalar amplitude
+    D_z = D(z) # Growth Function (normalised to unity for z=0)
+    delta_c = 1.686
+    GetModelPk(z,1e-4,1e0,NonLinear=False) # Use to set global transfer function T
+
+#def astropy_cosmo():
+#    return cosmo
 
 def f(z):
-    if UseCamb_global==True:
-        gamma = 0.545
-        return Omega_M(z)**gamma
-    else:
-        return cosmoNBK.scale_independent_growth_rate(z) # NBK default growth rate for given fiducial cosmo
+    gamma = 0.545
+    return Omega_m(z)**gamma
 
 def E(z):
     return np.sqrt( 1 - Om0 + Om0*(1+z)**3 )
 
 def H(z):
-    if UseCamb_global==True: return E(z)*H_0
-    else: return cosmo.H(z).value
+    if astropy==False: return E(z)*H_0
+    if astropy==True: return cosmo.H(z).value
 
-def Omega_M(z):
+def Omega_m(z):
     return H_0**2*Om0*(1+z)**3 / H(z)**2
 
 def Omega_b(z=0):
     if z!=0: print('\nError: Cosmotools needs evoloution for Omega_b(z)!')
     return Ob0
 
-def D_com(z):
-    if UseCamb_global==True:
-        #Comoving distance [Mpc/h]
+def d_com(z,UseCamb=False): #Comoving distance [Mpc/h]
+    if astropy==False:
         func = lambda z: (c_km/H_0)/E(z)
-        h = H_0/100
         return scipy.integrate.romberg(func,0,z) * h
-    else:
-        h = cosmo.H(0).value/100 # use to convert astopy Mpc distances to Mpc/h
-        return cosmo.comoving_distance(z).value*h
+    if astropy==True:
+        return cosmo.comoving_distance(z).value * h
 
 def Deltab(z,k,f_NL,b_HI):
     #Scale dependent modification of the Gaussian clustering bias
@@ -96,14 +89,6 @@ def D(z):
     D_0 = 5/2 * Om0 * H_0**2 * H(0) * integrate.quad(integrand, 0, 1e3)[0]
     D_z = 5/2 * Om0 * H_0**2 * H(z) * integrate.quad(integrand, z, 1e3)[0]
     return D_z / D_0 # Normalise such that D(z=0) = 1
-
-'''
-def T(k):
-    #Transfer function - from Amendola DE textbook eq 4.207:
-    k_eq = 2e-2
-    x = k / k_eq
-    return np.log(1+0.171*x)/(0.171*x) * ( 1 + 0.284*x + (1.18*x)**2 + (0.399*x)**3 + (0.49*x)**4 )**-0.25
-'''
 
 def GetModelPk(z,kmin=1e-3,kmax=10,NonLinear=False):
     '''

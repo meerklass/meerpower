@@ -24,7 +24,7 @@ def ProgressBar(i,N,header=None):
     sys.stdout.flush()
     if i==(N-1): print('\n')
 
-def PlotMap(map,W=None,ra=None,dec=None,map_ra=None,map_dec=None,wproj=None,title=None,Gal=False,cbar_label=None,ZeroCentre=False,vmin=None,vmax=None,cmap='magma'):
+def Map(map,W=None,ra=None,dec=None,map_ra=None,map_dec=None,wproj=None,title=None,Gal=False,cbar_label=None,ZeroCentre=False,vmin=None,vmax=None,cmap='magma'):
     plt.figure()
     if map_ra is not None:
         plt.subplot(projection=wproj)
@@ -71,25 +71,37 @@ def PlotMap(map,W=None,ra=None,dec=None,map_ra=None,map_dec=None,wproj=None,titl
     else: cbar.set_label(cbar_label)
     plt.title(title,fontsize=18)
 
-def PlotLoSspectra(map,zaxis=None,mapUnits='mK',xlabel=None,ylabel=None,lw=0.01):
+def LoSspectra(map,W,zaxis=None,mapUnits='mK',xlabel=None,ylabel=None,lw=0.01):
     ### plot all amplitudes along the LoS (freq or redshift direction) for every pixel in given 3D map
     # Assumes input map is in form [x,y,z] or [RA,Dec,z] where z is LoS dimension
     # zaxis: specify zaxis values to include in plot e.g. zaxis = nu (where nu is frequency values)
+    map_nan = np.copy(map)
+    map_nan[W==0] = np.nan
     nx,ny,nz = np.shape(map)
+    plt.figure()
     for i in range(nx):
         for j in range(ny):
-            if zaxis is None: plt.plot(map[i,j,:],lw=lw,color='black')
-            else: plt.plot(zaxis,map[i,j,:],lw=lw,color='black')
+            if zaxis is None: plt.plot(map_nan[i,j,:],lw=lw,color='black')
+            else: plt.plot(zaxis,map_nan[i,j,:],lw=lw,color='black')
+    del map_nan
     if zaxis is None: plt.xlim(left=0,right=nz)
     else:
         plt.xlim(left=np.min(zaxis),right=np.max(zaxis))
     if xlabel is None: plt.xlabel('Channel')
     else: plt.xlabel(xlabel)
-    if ylabel is None: plt.ylabel('Map Amplitude ['+mapUnits+']')
+    if ylabel is None: plt.ylabel('Map amplitude ['+mapUnits+']')
     else: plt.ylabel(ylabel)
     plt.figure()
 
-def PlotEigenSpectrum(eignumb,eigenval):
+def FrequencyCovariance(C,nu):
+    plt.figure()
+    plt.imshow(C,extent=[nu[0],nu[-1],nu[0],nu[-1]])
+    plt.colorbar(label=r'mK$^2$')
+    plt.xlabel('Frequency [MHz]')
+    plt.ylabel('Frequency [MHz]')
+    plt.title('Frequency covariance')
+
+def EigenSpectrum(eignumb,eigenval):
     plt.figure()
     ### Show eigenvalue spectrum from outputs of PCA clean
     eignumb_cut = 40 # highest eigenvalue to show
@@ -99,6 +111,29 @@ def PlotEigenSpectrum(eignumb,eigenval):
     plt.xlim(left=0,right=eignumb_cut)
     plt.xlabel('Eigennumber')
     plt.ylabel('Eigenvalue')
+
+def Eigenmodes(x,V,Num=6):
+    # Num: number of eigenmodes selected to plot
+    chart = 100*Num + 11
+    plt.figure(figsize=(7,3*Num))
+    for i in range(Num):
+        plt.subplot(chart + i)
+        plt.plot(x,V[:,i],label='eigenmode %s'%(i+1))
+        plt.legend(fontsize=16)
+
+def ProjectedEigenmodeMaps(map,W,V,ra,dec,wproj,Num=6):
+    # Num: number of eigenmodes selected to project
+    eigenvecs = np.arange(Num)
+    nx,ny,nz = np.shape(map)
+    M = np.reshape(map,(nx*ny,nz))
+    M = np.swapaxes(M,0,1) # [Npix,Nz]->[Nz,Npix]
+    for i in range(len(eigenvecs)):
+        A = np.swapaxes([V[:,eigenvecs[i]]],0,1) # Mixing matrix
+        S = np.dot(A.T,M)
+        sourcemap = np.dot(A,S)
+        sourcemap = np.swapaxes(sourcemap,0,1) #[Nz,Npix]->[Npix,Nz]
+        sourcemap = np.reshape(sourcemap,(nx,ny,nz))
+        Map(sourcemap,map_ra=ra,map_dec=dec,wproj=wproj,W=W,title=r'Projected map for Eigenvector %s'%(eigenvecs[i]+1))
 
 def PlotPk(k,Pk,sig_err=None,Pkmod=None,datalabels=None,modellabel='Model',figsize=(8,8),legendfontsize=18,xlabel=None,ylabel=None,ylabel_unit=None,plottitle=None,norm=1,fill_between=False,ModelComp=False,DetectSig=False):
 

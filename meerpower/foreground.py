@@ -1,16 +1,53 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import mocktools
-import powerspec
-import plottools
-import teletools
+import mock
+import power
+import plot
+import telescope
 import grid
 import cosmo
 import HItools
-import modeltools
+import model
 import healpy as hp
 
-def PCAclean(M,N_fg,w=None,W=None,returnAnalysis=False,M2=None,w2=None,W2=None,map4PCA=None):
+def PCAclean(M,N_fg,w=None,W=None,returnAnalysis=False):
+    # N_fg: number of eigenmodes for PCA to remove
+    # w: inverse noise weights
+    # W: binary window function, used to calculate correct mean-centring
+    nx,ny,nz = np.shape(M)
+    M = np.reshape(M,(nx*ny,nz))
+    if w is not None: w = np.reshape(w,(nx*ny,nz))
+    if W is not None: W = np.reshape(W,(nx*ny,nz))
+    ### Mean Centring and axes configuration:
+    '''
+    if W is None: M = M - np.mean(M,0) # Mean centre data
+    else:
+        for i in range(np.shape(M)[1]): # Have to loop, since mask collapses arrange to 1D and doesn't allow mean along an axis
+            if len(M[:,i][W[:,i]==1])>0: # skip empty channels to avoid mean of empty slice error
+                M[:,i][W[:,i]==1] = M[:,i][W[:,i]==1] - np.nanmean(M[:,i][W[:,i]==1]) # Mean centre data
+    '''
+    M = np.swapaxes(M,0,1) # [Npix,Nz]->[Nz,Npix]
+    if W is not None: W = np.swapaxes(W,0,1) # [Npix,Nz]->[Nz,Npix]
+    if W is None: W = np.ones(np.shape(M)) # Use unit window everywhere if no window provided
+    if w is not None: w = np.swapaxes(w,0,1) # [Npix,Nz]->[Nz,Npix]
+    if w is None: w = np.ones(np.shape(M)) # Use unit weights if no weighting provided
+    ### Covariance calculation:
+    C = np.cov(w*M) # include weight in frequency covariance estimate
+    if returnAnalysis==True:
+        eigenval = np.linalg.eigh(C)[0]
+        eignumb = np.linspace(1,len(eigenval),len(eigenval))
+        eigenval = eigenval[::-1] #Put largest eigenvals first
+        V = np.linalg.eigh(C)[1][:,::-1] # Eigenvectors from covariance matrix with most dominant first
+        return C,eignumb,eigenval,V
+    ### Remove dominant modes:
+    V = np.linalg.eigh(C)[1][:,::-1] # Eigenvectors from covariance matrix with most dominant first
+    A = V[:,:N_fg] # Mixing matrix, first N_fg most dominant modes of eigenvectors
+    S = np.dot(A.T,M) # not including weights in mode subtraction (as per Yi-Chao's approach)
+    Residual = (M - np.dot(A,S))
+    Residual = np.swapaxes(Residual,0,1) #[Nz,Npix]->[Npix,Nz]
+    return np.reshape(Residual,(nx,ny,nz)) #Rebuild if M was 3D datacube
+
+def PCAclean_dev(M,N_fg,w=None,W=None,returnAnalysis=False,M2=None,w2=None,W2=None,map4PCA=None):
     # N_fg: number of eigenmodes for PCA to remove
     # w: inverse noise weights
     # W: binary window function, used to calculate correct mean-centring
@@ -18,7 +55,6 @@ def PCAclean(M,N_fg,w=None,W=None,returnAnalysis=False,M2=None,w2=None,W2=None,m
     #      between both maps M1 and M2 and shared modes projected out both maps
     # map4PCA: optional secondary map if given mixing matrix will be calculated
     #            based on this but then applied to input map M
-
     nx,ny,nz = np.shape(M)
     M = np.reshape(M,(nx*ny,nz))
     if map4PCA is not None: map4PCA = np.reshape(map4PCA,(nx*ny,nz))
@@ -351,7 +387,7 @@ def CleanLevel5Map(cube,counts,nu,w=None,trimcut=None):
     Num = 6
     N_fg = 0
     for i in range(Num):
-        poly = modeltools.FitPolynomial(nu,V[:,i],n=3)
+        poly = model.FitPolynomial(nu,V[:,i],n=3)
         cleanflag = False
         if np.mean(np.abs(poly)) > flagthresh: cleanflag = True
         if cleanflag==True: N_fg+=1
@@ -368,7 +404,7 @@ def CleanLevel5Map(cube,counts,nu,w=None,trimcut=None):
         plt.subplot(3,4,panel)
         plt.axhline(0,color='black',lw=1)
         plt.plot(nu,Vnan[:,i],label='eigenmode %s'%(i+1))
-        poly = modeltools.FitPolynomial(nu,V[:,i],n=3)
+        poly = model.FitPolynomial(nu,V[:,i],n=3)
         cleanflag = False
         if np.mean(np.abs(poly)) > flagthresh: cleanflag = True
         if cleanflag==False: plt.legend(fontsize=16)
@@ -443,15 +479,15 @@ def TransferFunction(dT_obs,Nmock,TFfile,dims,N_fg,corrtype='HIauto',Pmod=None,k
     if TF2D==False: T_nosub = np.zeros((Nmock,len(kbins)-1))
     if TF2D==True: T = np.zeros((Nmock,len(kparabins)-1,len(kperpbins)-1))
     for i in range(Nmock):
-        plottools.ProgressBar(i,Nmock,header='\nConstructing transfer function...')
+        plot.ProgressBar(i,Nmock,header='\nConstructing transfer function...')
         if mockfilepath is None:
             seed = np.random.randint(0,1e6) # Use to generate consistent HI IM and galaxies from same random seed
-            dT_HImock = mocktools.Generate(Pmod,dims,b=b_HI,f=f,Tbar=Tbar,doRSD=True,seed=seed,W=None)
+            dT_HImock = mock.Generate(Pmod,dims,b=b_HI,f=f,Tbar=Tbar,doRSD=True,seed=seed,W=None)
             ### NOT CURRENTLY INCLUDING WEIGHTS FOR OPTIMAL RESMOOTHING  #############
-            dT_HImock = teletools.smooth(dT_HImock,ra,dec,nu,D_dish=13.5,gamma=gamma)
+            dT_HImock = telescope.smooth(dT_HImock,ra,dec,nu,D_dish=13.5,gamma=gamma)
             ##########################################################################
             dT_HImock[W_fix==0] = 0 # Mock same empty pixels as astrofixed data
-            if corrtype=='Cross': n_g_mock = mocktools.Generate(Pmod,dims,b=b_g,f=f,Tbar=1,doRSD=True,seed=seed,W=W_g,PossionSampGalaxies=True,Ngal=Ngal)
+            if corrtype=='Cross': n_g_mock = mock.Generate(Pmod,dims,b=b_g,f=f,Tbar=1,doRSD=True,seed=seed,W=W_g,PossionSampGalaxies=True,Ngal=Ngal)
         else: dT_mock = np.load(mockfilepath + '_' + i + '.npy')
         if YichaoMethod==False: dT_clean_mock = PCAclean(dT_HImock + dT_obs,N_fg,w=w_HI,W=W_fix)
         if YichaoMethod==True: dT_clean_mock = PCAclean(dT_obs,N_fg,w=w_HI,W=W_fix,Sim=dT_HImock)
@@ -466,20 +502,20 @@ def TransferFunction(dT_obs,Nmock,TFfile,dims,N_fg,corrtype='HIauto',Pmod=None,k
             if corrtype=='Cross': n_g_mock = blackman*n_g_mock
         if corrtype=='HIauto':
             if TF2D==False:
-                Pk_dm,k,nmodes = powerspec.Pk(dT_clean_mock-dT_clean_data , dT_HImock , dims,kbins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
-                Pk_dm_nosub,k,nmodes = powerspec.Pk(dT_clean_mock , dT_HImock , dims,kbins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
-                Pk_mm,k,nmodes = powerspec.Pk(dT_HImock , dT_HImock , dims,kbins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
+                Pk_dm,k,nmodes = power.Pk(dT_clean_mock-dT_clean_data , dT_HImock , dims,kbins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
+                Pk_dm_nosub,k,nmodes = power.Pk(dT_clean_mock , dT_HImock , dims,kbins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
+                Pk_mm,k,nmodes = power.Pk(dT_HImock , dT_HImock , dims,kbins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
             if TF2D==True:
-                Pk_dm,nmodes = powerspec.PerpParaPk(dT_clean_mock-dT_clean_data , dT_HImock ,dims,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
-                Pk_mm,nmodes = powerspec.PerpParaPk(dT_HImock , dT_HImock ,dims,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
+                Pk_dm,nmodes = power.PerpParaPk(dT_clean_mock-dT_clean_data , dT_HImock ,dims,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
+                Pk_mm,nmodes = power.PerpParaPk(dT_HImock , dT_HImock ,dims,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
         if corrtype=='Cross':
             if TF2D==False:
-                if YichaoMethod==False: Pk_dm,k,nmodes = powerspec.Pk(dT_clean_mock-dT_clean_data , n_g_mock , dims,kbins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
-                if YichaoMethod==True: Pk_dm,k,nmodes = powerspec.Pk(dT_clean_mock , n_g_mock , dims,kbins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
-                Pk_mm,k,nmodes = powerspec.Pk(dT_HImock , n_g_mock , dims,kbins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
+                if YichaoMethod==False: Pk_dm,k,nmodes = power.Pk(dT_clean_mock-dT_clean_data , n_g_mock , dims,kbins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
+                if YichaoMethod==True: Pk_dm,k,nmodes = power.Pk(dT_clean_mock , n_g_mock , dims,kbins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
+                Pk_mm,k,nmodes = power.Pk(dT_HImock , n_g_mock , dims,kbins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
             if TF2D==True:
-                Pk_dm,nmodes = powerspec.PerpParaPk(dT_clean_mock-dT_clean_data , n_g_mock ,dims,kperpbins,kparabins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
-                Pk_mm,nmodes = powerspec.PerpParaPk(dT_HImock , n_g_mock ,dims,kperpbins,kparabins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
+                Pk_dm,nmodes = power.PerpParaPk(dT_clean_mock-dT_clean_data , n_g_mock ,dims,kperpbins,kparabins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
+                Pk_mm,nmodes = power.PerpParaPk(dT_HImock , n_g_mock ,dims,kperpbins,kparabins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
         T[i] = Pk_dm / Pk_mm
         if TF2D==False: T_nosub[i] = Pk_dm_nosub / Pk_mm
     if TFfile is not None:
@@ -525,10 +561,10 @@ def TransferFunctionAuto_CrossDish(dT_obsA,dT_obsB,Nmock,TFfile,dims,N_fg,corrty
         T_nosubB = np.zeros((Nmock,len(kbins)-1))
     if TF2D==True: T = np.zeros((Nmock,len(kparabins)-1,len(kperpbins)-1))
     for i in range(Nmock):
-        plottools.ProgressBar(i,Nmock,header='\nConstructing transfer function...')
+        plot.ProgressBar(i,Nmock,header='\nConstructing transfer function...')
         seed = np.random.randint(0,1e6) # Use to generate consistent HI IM and galaxies from same random seed
-        dT_HImock = mocktools.Generate(Pmod,dims,b=b_HI,f=f,Tbar=Tbar,doRSD=True,seed=seed,W=None)
-        dT_HImock = teletools.smooth(dT_HImock,map_ra,map_dec,nu,D_dish=13.5)
+        dT_HImock = mock.Generate(Pmod,dims,b=b_HI,f=f,Tbar=Tbar,doRSD=True,seed=seed,W=None)
+        dT_HImock = telescope.smooth(dT_HImock,map_ra,map_dec,nu,D_dish=13.5)
         dT_HImockA = np.copy(dT_HImock)
         dT_HImockB = np.copy(dT_HImock)
         dT_HImockA[W_HIA==0] = 0 # Mock same empty pixels as astrofixed data
@@ -546,13 +582,13 @@ def TransferFunctionAuto_CrossDish(dT_obsA,dT_obsB,Nmock,TFfile,dims,N_fg,corrty
             dT_clean_mockB = blackman*dT_clean_mockB
             dT_HImockB = blackman*dT_HImockB
         if TF2D==False:
-            Pk_dm,k,nmodes = powerspec.Pk(dT_clean_mockA-dT_clean_dataA , dT_clean_mockB-dT_clean_dataB , dims,kbins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
-            Pk_dm_nosubA,k,nmodes = powerspec.Pk(dT_clean_mockA , dT_clean_mockB-dT_clean_dataB , dims,kbins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
-            Pk_dm_nosubB,k,nmodes = powerspec.Pk(dT_clean_mockA-dT_clean_dataA , dT_clean_mockB , dims,kbins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
-            Pk_mm,k,nmodes = powerspec.Pk(dT_HImockA , dT_HImockB , dims,kbins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
+            Pk_dm,k,nmodes = power.Pk(dT_clean_mockA-dT_clean_dataA , dT_clean_mockB-dT_clean_dataB , dims,kbins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
+            Pk_dm_nosubA,k,nmodes = power.Pk(dT_clean_mockA , dT_clean_mockB-dT_clean_dataB , dims,kbins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
+            Pk_dm_nosubB,k,nmodes = power.Pk(dT_clean_mockA-dT_clean_dataA , dT_clean_mockB , dims,kbins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
+            Pk_mm,k,nmodes = power.Pk(dT_HImockA , dT_HImockB , dims,kbins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
         if TF2D==True:
-            Pk_dm,nmodes = powerspec.PerpParaPk(dT_clean_mockA-dT_clean_dataA , dT_clean_mockB-dT_clean_dataB ,dims,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
-            Pk_mm,nmodes = powerspec.PerpParaPk(dT_HImockA , dT_HImockB ,dims,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
+            Pk_dm,nmodes = power.PerpParaPk(dT_clean_mockA-dT_clean_dataA , dT_clean_mockB-dT_clean_dataB ,dims,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
+            Pk_mm,nmodes = power.PerpParaPk(dT_HImockA , dT_HImockB ,dims,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
         T[i] = Pk_dm / Pk_mm
         if TF2D==False:
             T_nosubA[i] = Pk_dm_nosubA / Pk_mm
@@ -588,9 +624,9 @@ def TransferFunctionOLD(dT_obs,Nmock,TFfile,dims,N_fg,Pmod=None,kbins=None,k=Non
         W_HI_rg = blackman*W_HI
     T = np.zeros((Nmock,len(kbins)-1))
     for i in range(Nmock):
-        plottools.ProgressBar(i,Nmock,header='\nConstructing transfer function...')
+        plot.ProgressBar(i,Nmock,header='\nConstructing transfer function...')
         if mockfilepath is None:
-            dT_HImock = Tbar * mocktools.GetMock(Pmod,dims,b=b_HI,f=f,doRSD=True)
+            dT_HImock = Tbar * mock.GetMock(Pmod,dims,b=b_HI,f=f,doRSD=True)
             dT_HImock[W_HI==0] = 0 # Mask pixels to match data
         else: dT_mock = np.load(mockfilepath + '_' + i + '.npy')
         dT_clean_mock = PCAclean(dT_HImock + dT_obs,N_fg,W=W_HI,freqmask=freqmask)
@@ -600,8 +636,8 @@ def TransferFunctionOLD(dT_obs,Nmock,TFfile,dims,N_fg,Pmod=None,kbins=None,k=Non
         else:
             dT_clean_mock = blackman*dT_clean_mock
             dT_HImock = blackman*dT_HImock
-        Pk_dm,k,nmodes = powerspec.Pk(dT_clean_mock-dT_clean_data , dT_HImock , dims,kbins,w1=w_HI,w2=w_HI,W1=W_HI,W2=W_HI)
-        Pk_mm,k,nmodes = powerspec.Pk(dT_HImock , dT_HImock , dims,kbins,w1=w_HI,w2=w_HI,W1=W_HI,W2=W_HI)
+        Pk_dm,k,nmodes = power.Pk(dT_clean_mock-dT_clean_data , dT_HImock , dims,kbins,w1=w_HI,w2=w_HI,W1=W_HI,W2=W_HI)
+        Pk_mm,k,nmodes = power.Pk(dT_HImock , dT_HImock , dims,kbins,w1=w_HI,w2=w_HI,W1=W_HI,W2=W_HI)
         T[i] = Pk_dm / Pk_mm
     if TFfile is not None: np.save(TFfile,[T,k])
     return T,k
@@ -637,7 +673,7 @@ def applyFG(map,dims,zeff,zmin,zmax,ra=None,dec=None,GSMfilepath='/Users/stevecu
     npix = hp.nside2npix(nside)
     FGmaps = np.zeros((nz,npix))
     for i in range(nz):
-        plottools.ProgressBar(i,nz,header='\nBuilding foreground maps ...')
+        plot.ProgressBar(i,nz,header='\nBuilding foreground maps ...')
         vmin = vbins[i+1]
         vmax = vbins[i]
         vc = vmin + (vmax - vmin)/2
@@ -693,6 +729,6 @@ def FGPeturbations(dT_MK,W_HI,nu):
     for i in range(nx):
         for j in range(ny):
             if W_HI[i,j,0]==0: continue
-            poly = modeltools.FitPolynomial(nu,dT_MK[i,j,:],n=2)
+            poly = model.FitPolynomial(nu,dT_MK[i,j,:],n=2)
             perturbs[i,j,:] = dT_MK[i,j,:]/poly
     return perturbs

@@ -3,7 +3,7 @@ Mock generation code: have taken parts from Steve Murray's Power box [https://gi
 however this only works for cubic boxes where nx=ny=nz - so need to use this generalised script
 '''
 import numpy as np
-import plottools
+import plot
 import matplotlib.pyplot as plt
 try: # See if pyfftw is installed and use this if so for increased speed performance - see powerbox documentation
     from pyfftw import empty_aligned as empty
