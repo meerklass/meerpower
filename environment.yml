@@ -1,0 +1,9 @@
+name: meerpower_env
+dependencies:
+  - numpy
+  - matplotlib
+  - scipy
+  - pyfftw
+  - camb
+  - emcee
+  - healpy
