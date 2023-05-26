@@ -1,6 +1,8 @@
 # meerpower
 Code repo for power spectrum analysis pipeline
 
+See ``demo/demo_notebook.ipynb`` for an example notebook of some analysis capabilities.
+
 ## Installation:
 
 ``git clone git@github.com:/meerklass/meerpower.git``
