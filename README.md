@@ -7,7 +7,9 @@ See ``demo/demo_notebook.ipynb`` for an example notebook of some analysis capabi
 
 ``git clone git@github.com:/meerklass/meerpower.git``
 
-Creating a virtual environement is the easiest way to install dependencies and run this pipeline. If using ilifu, anaconda can be added using e.g.:
+If using **ilifu**, you should be able to run the demo Jupyter notebook by chosing the environment "meerpower_kernel" within Jupyter.
+
+Alternatively, one can create their own virtual environement which is the easiest way to install dependencies and run this pipeline. For example on ilifu, anaconda can be added using e.g.:
 
 ``module load anaconda3/2021.05``
 
