@@ -71,10 +71,11 @@ def Map(map,W=None,ra=None,dec=None,map_ra=None,map_dec=None,wproj=None,title=No
     else: cbar.set_label(cbar_label)
     plt.title(title,fontsize=18)
 
-def LoSspectra(map,W,zaxis=None,mapUnits='mK',xlabel=None,ylabel=None,lw=0.01):
+def LoSspectra(map,W,zaxis=None,mapUnits='mK',xlabel=None,ylabel=None,lw=0.01,title=None):
     ### plot all amplitudes along the LoS (freq or redshift direction) for every pixel in given 3D map
     # Assumes input map is in form [x,y,z] or [RA,Dec,z] where z is LoS dimension
     # zaxis: specify zaxis values to include in plot e.g. zaxis = nu (where nu is frequency values)
+    plt.figure()
     map_nan = np.copy(map)
     map_nan[W==0] = np.nan
     nx,ny,nz = np.shape(map)
@@ -91,17 +92,18 @@ def LoSspectra(map,W,zaxis=None,mapUnits='mK',xlabel=None,ylabel=None,lw=0.01):
     else: plt.xlabel(xlabel)
     if ylabel is None: plt.ylabel('Map amplitude ['+mapUnits+']')
     else: plt.ylabel(ylabel)
-    plt.figure()
+    if title is not None: plt.title(title,fontsize=18)
 
-def FrequencyCovariance(C,nu):
+def FrequencyCovariance(C,nu,title=None):
     plt.figure()
     plt.imshow(C,extent=[nu[0],nu[-1],nu[0],nu[-1]])
     plt.colorbar(label=r'mK$^2$')
     plt.xlabel('Frequency [MHz]')
     plt.ylabel('Frequency [MHz]')
-    plt.title('Frequency covariance')
+    if title is not None: plt.title(title,fontsize=18)
+    else: plt.title('Frequency covariance')
 
-def EigenSpectrum(eignumb,eigenval):
+def EigenSpectrum(eignumb,eigenval,title=None):
     plt.figure()
     ### Show eigenvalue spectrum from outputs of PCA clean
     eignumb_cut = 40 # highest eigenvalue to show
@@ -111,8 +113,9 @@ def EigenSpectrum(eignumb,eigenval):
     plt.xlim(left=0,right=eignumb_cut)
     plt.xlabel('Eigennumber')
     plt.ylabel('Eigenvalue')
+    if title is not None: plt.title(title,fontsize=18)
 
-def Eigenmodes(x,V,Num=6):
+def Eigenmodes(x,V,Num=6,title=None):
     # Num: number of eigenmodes selected to plot
     chart = 100*Num + 11
     plt.figure(figsize=(7,3*Num))
@@ -120,6 +123,7 @@ def Eigenmodes(x,V,Num=6):
         plt.subplot(chart + i)
         plt.plot(x,V[:,i],label='eigenmode %s'%(i+1))
         plt.legend(fontsize=16)
+    if title is not None: plt.title(title,fontsize=18)
 
 def ProjectedEigenmodeMaps(map,W,V,ra,dec,wproj,Num=6):
     # Num: number of eigenmodes selected to project

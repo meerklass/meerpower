@@ -524,9 +524,9 @@ def TransferFunction(dT_obs,Nmock,TFfile,dims,N_fg,corrtype='HIauto',Pmod=None,k
     if TF2D==True: return T
     else: return T,T_nosub,k
 
-def TransferFunctionAuto_CrossDish(dT_obsA,dT_obsB,Nmock,TFfile,dims,N_fg,corrtype='HIauto',Pmod=None,kbins=None,k=None,w_HIA=None,W_HIA=None,w_HIB=None,W_HIB=None,regrid=False,blackman=1,zeff=0,b_HI=1,f=0,Tbar=1,map_ra=None,map_dec=None,nu=None,LoadTF=False,TF2D=False,kperpbins=None,kparabins=None):
+def TransferFunctionAuto_CrossDish(dT_obsA,dT_obsB,Nmock,TFfile,dims,N_fg,corrtype='HIauto',Pmod=None,kbins=None,k=None,w_HIA=None,W_HIA=None,w_HIB=None,W_HIB=None,regrid=False,ndim=None,blackman=1,zeff=0,b_HI=1,f=0,Tbar=1,map_ra=None,map_dec=None,nu=None,LoadTF=False,TF2D=False,kperpbins=None,kparabins=None):
     # Loop over Nmock number of mocks injected into real data to compute transfer function
-    np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning) # Set to stop VisibleDeprecationWarning
+    #np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning) # Set to stop VisibleDeprecationWarning
     ### Load pre-saved data if requested:
     if LoadTF==True:
         if TF2D==False:
@@ -539,12 +539,12 @@ def TransferFunctionAuto_CrossDish(dT_obsA,dT_obsB,Nmock,TFfile,dims,N_fg,corrty
     dT_clean_dataA = PCAclean(dT_obsA,N_fg,w=w_HIA,W=W_HIA)
     dT_clean_dataB = PCAclean(dT_obsB,N_fg,w=w_HIB,W=W_HIB)
     if regrid==True: # Regrid data from sky (ra,dec,freq)->(x,y,z) comoving
-        dT_clean_dataA,dims,dims0 = grid.regrid_Steve(blackman*dT_clean_dataA,map_ra,map_dec,nu)
-        if w_HIA is not None: w_HI_rgA,dims,dims0 = grid.regrid_Steve(blackman*w_HIA,map_ra,map_dec,nu) # use in PS measurement
-        if W_HIA is not None: W_HI_rgA,dims,dims0 = grid.regrid_Steve(blackman*W_HIA,map_ra,map_dec,nu) #   not FG clean
-        dT_clean_dataB,dims,dims0 = grid.regrid_Steve(blackman*dT_clean_dataB,map_ra,map_dec,nu)
-        if w_HIB is not None: w_HI_rgB,dims,dims0 = grid.regrid_Steve(blackman*w_HIB,map_ra,map_dec,nu) # use in PS measurement
-        if W_HIB is not None: W_HI_rgB,dims,dims0 = grid.regrid_Steve(blackman*W_HIB,map_ra,map_dec,nu) #   not FG clean
+        dT_clean_dataA,dims,dims0 = grid.comoving(blackman*dT_clean_dataA,map_ra,map_dec,nu,ndim)
+        if w_HIA is not None: w_HI_rgA,dims,dims0 = grid.comoving(blackman*w_HIA,map_ra,map_dec,nu,ndim) # use in PS measurement
+        if W_HIA is not None: W_HI_rgA,dims,dims0 = grid.comoving(blackman*W_HIA,map_ra,map_dec,nu,ndim) #   not FG clean
+        dT_clean_dataB,dims,dims0 = grid.comoving(blackman*dT_clean_dataB,map_ra,map_dec,nu,ndim)
+        if w_HIB is not None: w_HI_rgB,dims,dims0 = grid.comoving(blackman*w_HIB,map_ra,map_dec,nu,ndim) # use in PS measurement
+        if W_HIB is not None: W_HI_rgB,dims,dims0 = grid.comoving(blackman*W_HIB,map_ra,map_dec,nu,ndim) #   not FG clean
     else:
         if w_HIA is not None: w_HI_rgA = blackman*w_HIA
         if W_HIA is not None: W_HI_rgA = blackman*W_HIA
@@ -572,10 +572,10 @@ def TransferFunctionAuto_CrossDish(dT_obsA,dT_obsB,Nmock,TFfile,dims,N_fg,corrty
         dT_clean_mockA = PCAclean(dT_HImockA + dT_obsA,N_fg,w=w_HIA,W=W_HIA)
         dT_clean_mockB = PCAclean(dT_HImockB + dT_obsB,N_fg,w=w_HIB,W=W_HIB)
         if regrid==True: # Regrid cleaned maps from sky (ra,dec,freq)->(x,y,z) comoving
-            dT_clean_mockA,dims,dims0 = grid.regrid_Steve(blackman*dT_clean_mockA,map_ra,map_dec,nu)
-            dT_HImockA,dims,dims0 = grid.regrid_Steve(blackman*dT_HImockA,map_ra,map_dec,nu)
-            dT_clean_mockB,dims,dims0 = grid.regrid_Steve(blackman*dT_clean_mockB,map_ra,map_dec,nu)
-            dT_HImockB,dims,dims0 = grid.regrid_Steve(blackman*dT_HImockB,map_ra,map_dec,nu)
+            dT_clean_mockA,dims,dims0 = grid.comoving(blackman*dT_clean_mockA,map_ra,map_dec,nu,ndim)
+            dT_HImockA,dims,dims0 = grid.comoving(blackman*dT_HImockA,map_ra,map_dec,nu,ndim)
+            dT_clean_mockB,dims,dims0 = grid.comoving(blackman*dT_clean_mockB,map_ra,map_dec,nu,ndim)
+            dT_HImockB,dims,dims0 = grid.comoving(blackman*dT_HImockB,map_ra,map_dec,nu,ndim)
         else:
             dT_clean_mockA = blackman*dT_clean_mockA
             dT_HImockA = blackman*dT_HImockA

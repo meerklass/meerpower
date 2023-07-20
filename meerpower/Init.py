@@ -2,20 +2,15 @@ import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.wcs.utils import pixel_to_skycoord
+import os
+import plot
 
-def ReadIn(map_file,counts_file,numin=971,numax=1023.8):
+def ReadIn(map_file,counts_file,numin=971,numax=1023.8,getcoord=True):
     ''' Read-in .fits file for level6 or level5 saved maps '''
+    # getcoord: Set True to return map coordinates and dimensions of cube.
+    # numin,numax: the frequency range to chose data between
     map = fits.open(map_file)[0].data
     counts = fits.open(counts_file)[0].data
-    ### Define the intensity map coordinates:
-    wproj = WCS(map_file).dropaxis(-1)
-    wproj.wcs.ctype = ['RA---ZEA', 'DEC--ZEA'] #projection
-    ra,dec = np.zeros_like(map[:,:,0]),np.zeros_like(map[:,:,0])
-    for i in range(np.shape(ra)[0]):
-        for j in range(np.shape(ra)[1]):
-            radec=pixel_to_skycoord(i,j,wproj)
-            ra[i,j]=radec.ra.deg
-            dec[i,j]=radec.dec.deg
     nu = np.linspace(1,4096,4096)
     nu_orig = cal_freq(nu)/1e6 # original MeerKAT frequency range [MHz]
     nu = nu_orig[(nu_orig>numin) & (nu_orig<numax)] # cut frequency channels to specified range
@@ -28,9 +23,75 @@ def ReadIn(map_file,counts_file,numin=971,numax=1023.8):
     ### Upgrade to more sophisticated weighting scheme here:
     w = np.copy(W) # currently using unity weighting
     ####################################################################
-    nx,ny,nz = np.shape(map)
-    dims = [0,0,0,nx,ny,nz] # [lx,ly,lz] calculated later in pipeline after regridding
-    return map,w,W,counts,dims,ra,dec,nu,wproj
+    if getcoord==True: ### Define the intensity map coordinates:
+        wproj = WCS(map_file).dropaxis(-1)
+        wproj.wcs.ctype = ['RA---ZEA', 'DEC--ZEA'] #projection
+        ra,dec = np.zeros_like(map[:,:,0]),np.zeros_like(map[:,:,0])
+        for i in range(np.shape(ra)[0]):
+            for j in range(np.shape(ra)[1]):
+                radec=pixel_to_skycoord(i,j,wproj)
+                ra[i,j]=radec.ra.deg
+                dec[i,j]=radec.dec.deg
+        nx,ny,nz = np.shape(map)
+        dims = [0,0,0,nx,ny,nz] # [lx,ly,lz] calculated later in pipeline after regridding
+        return map,w,W,counts,dims,ra,dec,nu,wproj
+    else: return map,w,W,counts
+
+def subsetmap(level5path,dish_indx=None,scan_indx=None,verbose=False,output_path=None):
+    '''Combine chosen combination of level5 maps. Use to construct subset maps for
+    cross-correlating and isolating time- and dish- dependent systematics.
+    '''
+    # - dish_indx,scan_indx: arrays of indices for the dish and scans from which to
+    #     build subsets
+    # - output_path: specify a path to save output. If None is specified, map is not saved.
+    scan,dish = get2021IDs()
+    if verbose==True: # Print number of available maps for chosen dish/scan indices:
+        count = 0
+        for n in scan_indx:
+            for m in dish_indx:
+                filename = level5path + scan[n]+'_m0'+dish[m]+'_Sum_Tsky_xy_p0.3d.fits'
+                if os.path.isfile(filename) is True: count+=1 # check file exists, if so, count
+        print('\n' + str(int(count)) + ' maps in subset')
+    map_sum,counts_sum = None,None
+    i = 0
+    for n in scan_indx:
+        for m in dish_indx:
+            plot.ProgressBar(i,N=len(scan_indx)*len(dish_indx),header='Building subset map:')
+            i+=1
+            map_file = level5path + scan[n]+'_m0'+dish[m]+'_Sum_Tsky_xy_p0.3d.fits'
+            counts_file = level5path + scan[n]+'_m0'+dish[m]+'_Npix_xy_count_p0.3d.fits'
+            if os.path.isfile(map_file) is False: continue # check file exists, if not, skip
+            map,w,W,counts = ReadIn(map_file,counts_file,getcoord=False)
+            # iteratively sum intensity maps and hit counts for all level5 maps:
+            if map_sum is None: map_sum = map # for first map in loop
+            else: map_sum += map
+            if counts_sum is None: counts_sum = counts # for first map in loop
+            else: counts_sum += counts
+    map_ave = np.zeros(np.shape(map_sum))
+    map_ave[counts_sum!=0] = map_sum[counts_sum!=0]/counts_sum[counts_sum!=0]
+
+    W = np.ones(np.shape(map_ave)) # binary mask: 1 where pixel filled, 0 otherwise
+    W[map_ave==0] = 0
+    ### Upgrade to more sophisticated weighting scheme here:
+    w = np.copy(W) # currently using unity weighting
+    ####################################################################
+    if output_path is not None: # save subset maps to output path
+        np.save(output_path+'dish%s-%s_scan%s-%s'%(dish_indx[0],dish_indx[-1],scan_indx[0],scan_indx[-1]),[map_ave,w,W,counts_sum])
+    return map_ave,w,W,counts_sum
+
+def get2021IDs():
+    # return UNIX IDs for scans, and indices for dish antenas for 2021 L-band observations
+    scan = ['1630519596','1631379874','1631387336','1631552188','1631559762','1631659886',
+            '1631667564','1631724508','1631732038','1631810671','1631818149','1631982988',
+            '1631990463','1632069690','1632077222','1632184922','1632505883','1632760885',
+            '1633365980','1633970780','1634252028','1634402485','1634748682','1634835083',
+            '1637346562','1637354605','1637691677','1637699408','1638130295','1638294319',
+            '1638301944','1638386189','1638639082','1638647186','1638898468','1639157507',
+            '1639331184','1639935088','1640540184','1640712986','1640799689']
+    dish = []
+    for i in range(64):
+        dish.append("%02d" %i)
+    return scan,dish
 
 def cal_freq(ch):
     # Function from Jingying Wang to get L-band channel frequencies
