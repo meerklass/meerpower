@@ -5,11 +5,12 @@ from astropy.wcs.utils import pixel_to_skycoord
 import os
 import plot
 
-def ReadIn(map_file,counts_file,numin=971,numax=1023.8,getcoord=True):
+def ReadIn(map_file,counts_file=None,numin=971,numax=1023.8,getcoord=True):
     ''' Read-in .fits file for level6 or level5 saved maps '''
     # getcoord: Set True to return map coordinates and dimensions of cube.
     # numin,numax: the frequency range to chose data between
     map = fits.open(map_file)[0].data
+    if counts_file is None: counts_file = map_file.replace("Tsky", "Npix_count")
     counts = fits.open(counts_file)[0].data
     nu = np.linspace(1,4096,4096)
     nu_orig = cal_freq(nu)/1e6 # original MeerKAT frequency range [MHz]

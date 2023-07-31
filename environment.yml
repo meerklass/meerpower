@@ -7,3 +7,4 @@ dependencies:
   - camb
   - emcee
   - healpy
+  - h5py
