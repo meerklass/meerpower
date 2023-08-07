@@ -30,7 +30,8 @@ try:
 
     from multiprocessing import cpu_count
 
-    THREADS = cpu_count()
+    #THREADS = cpu_count()
+    THREADS = 1
 
     from pyfftw.interfaces.numpy_fft import fftn as _fftn, ifftn as _ifftn, ifftshift as _ifftshift, \
         fftshift as _fftshift, fftfreq as _fftfreq

@@ -524,7 +524,7 @@ def TransferFunction(dT_obs,Nmock,TFfile,dims,N_fg,corrtype='HIauto',Pmod=None,k
     if TF2D==True: return T
     else: return T,T_nosub,k
 
-def TransferFunctionAuto_CrossDish(dT_obsA,dT_obsB,Nmock,TFfile,dims,N_fg,corrtype='HIauto',Pmod=None,kbins=None,k=None,w_HIA=None,W_HIA=None,w_HIB=None,W_HIB=None,regrid=False,ndim=None,blackman=1,zeff=0,b_HI=1,f=0,Tbar=1,map_ra=None,map_dec=None,nu=None,LoadTF=False,TF2D=False,kperpbins=None,kparabins=None):
+def TransferFunctionAuto_CrossDish(dT_obsA,dT_obsB,Nmock,TFfile,dims_orig,N_fg,corrtype='HIauto',Pmod=None,kbins=None,k=None,w1=None,W1=None,w2=None,W2=None,regrid=False,ndim=None,blackman=1,zeff=0,b_HI=1,f=0,Tbar=1,map_ra=None,map_dec=None,nu=None,LoadTF=False,TF2D=False,kperpbins=None,kparabins=None):
     # Loop over Nmock number of mocks injected into real data to compute transfer function
     #np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning) # Set to stop VisibleDeprecationWarning
     ### Load pre-saved data if requested:
@@ -536,24 +536,24 @@ def TransferFunctionAuto_CrossDish(dT_obsA,dT_obsB,Nmock,TFfile,dims,N_fg,corrty
             T,k_TF = np.load(TFfile,allow_pickle=True)
             return T,k_TF
     ### If no pre-saved TF, run calculation:
-    dT_clean_dataA = PCAclean(dT_obsA,N_fg,w=w_HIA,W=W_HIA)
-    dT_clean_dataB = PCAclean(dT_obsB,N_fg,w=w_HIB,W=W_HIB)
+    dT_clean_dataA = PCAclean(dT_obsA,N_fg,w=None,W=W1)
+    dT_clean_dataB = PCAclean(dT_obsB,N_fg,w=None,W=W2)
     if regrid==True: # Regrid data from sky (ra,dec,freq)->(x,y,z) comoving
-        dT_clean_dataA,dims,dims0 = grid.comoving(blackman*dT_clean_dataA,map_ra,map_dec,nu,ndim)
-        if w_HIA is not None: w_HI_rgA,dims,dims0 = grid.comoving(blackman*w_HIA,map_ra,map_dec,nu,ndim) # use in PS measurement
-        if W_HIA is not None: W_HI_rgA,dims,dims0 = grid.comoving(blackman*W_HIA,map_ra,map_dec,nu,ndim) #   not FG clean
-        dT_clean_dataB,dims,dims0 = grid.comoving(blackman*dT_clean_dataB,map_ra,map_dec,nu,ndim)
-        if w_HIB is not None: w_HI_rgB,dims,dims0 = grid.comoving(blackman*w_HIB,map_ra,map_dec,nu,ndim) # use in PS measurement
-        if W_HIB is not None: W_HI_rgB,dims,dims0 = grid.comoving(blackman*W_HIB,map_ra,map_dec,nu,ndim) #   not FG clean
+        dT_clean_dataA,dims,dims0 = grid.comoving(blackman*dT_clean_dataA,map_ra,map_dec,nu,W=W1,ndim=ndim)
+        if w1 is not None: w1_rg,dims,dims0 = grid.comoving(blackman*w1,map_ra,map_dec,nu,W=W1,ndim=ndim) # use in PS measurement
+        if W1 is not None: W1_rg,dims,dims0 = grid.comoving(blackman*W1,map_ra,map_dec,nu,W=W1,ndim=ndim) #   not FG clean
+        dT_clean_dataB,dims,dims0 = grid.comoving(blackman*dT_clean_dataB,map_ra,map_dec,nu,W=W2,ndim=ndim)
+        if w2 is not None: w2_rg,dims,dims0 = grid.comoving(blackman*w2,map_ra,map_dec,nu,W=W2,ndim=ndim) # use in PS measurement
+        if W2 is not None: W2_rg,dims,dims0 = grid.comoving(blackman*W2,map_ra,map_dec,nu,W=W2,ndim=ndim) #   not FG clean
     else:
-        if w_HIA is not None: w_HI_rgA = blackman*w_HIA
-        if W_HIA is not None: W_HI_rgA = blackman*W_HIA
-        if w_HIB is not None: w_HI_rgB = blackman*w_HIB
-        if W_HIB is not None: W_HI_rgB = blackman*W_HIB
-    if w_HIA is None: w_HI_rgA = None
-    if W_HIA is None: W_HI_rgA = None
-    if w_HIB is None: w_HI_rgB = None
-    if W_HIB is None: W_HI_rgB = None
+        if w1 is not None: w1_rg = blackman*w1
+        if W1 is not None: W1_rg = blackman*W1
+        if w2 is not None: w2_rg = blackman*w2
+        if W2 is not None: W2_rg = blackman*W2
+    if w1 is None: w1_rg = None
+    if W1 is None: W1_rg = None
+    if w2 is None: w2_rg = None
+    if W2 is None: W2_rg = None
 
     T = np.zeros((Nmock,len(kbins)-1))
     if TF2D==False:
@@ -563,32 +563,35 @@ def TransferFunctionAuto_CrossDish(dT_obsA,dT_obsB,Nmock,TFfile,dims,N_fg,corrty
     for i in range(Nmock):
         plot.ProgressBar(i,Nmock,header='\nConstructing transfer function...')
         seed = np.random.randint(0,1e6) # Use to generate consistent HI IM and galaxies from same random seed
-        dT_HImock = mock.Generate(Pmod,dims,b=b_HI,f=f,Tbar=Tbar,doRSD=True,seed=seed,W=None)
+        dT_HImock = mock.Generate(Pmod,dims_orig,b=b_HI,f=f,Tbar=Tbar,doRSD=True,seed=seed,W=None)
         dT_HImock = telescope.smooth(dT_HImock,map_ra,map_dec,nu,D_dish=13.5)
         dT_HImockA = np.copy(dT_HImock)
         dT_HImockB = np.copy(dT_HImock)
-        dT_HImockA[W_HIA==0] = 0 # Mock same empty pixels as astrofixed data
-        dT_HImockB[W_HIB==0] = 0 # Mock same empty pixels as astrofixed data
-        dT_clean_mockA = PCAclean(dT_HImockA + dT_obsA,N_fg,w=w_HIA,W=W_HIA)
-        dT_clean_mockB = PCAclean(dT_HImockB + dT_obsB,N_fg,w=w_HIB,W=W_HIB)
+        print(np.shape(dT_HImockA))
+        print(np.shape(W1))
+
+        dT_HImockA[W1==0] = 0 # Mock same empty pixels as astrofixed data
+        dT_HImockB[W2==0] = 0 # Mock same empty pixels as astrofixed data
+        dT_clean_mockA = PCAclean(dT_HImockA + dT_obsA,N_fg,w=None,W=W1)
+        dT_clean_mockB = PCAclean(dT_HImockB + dT_obsB,N_fg,w=None,W=W2)
         if regrid==True: # Regrid cleaned maps from sky (ra,dec,freq)->(x,y,z) comoving
-            dT_clean_mockA,dims,dims0 = grid.comoving(blackman*dT_clean_mockA,map_ra,map_dec,nu,ndim)
-            dT_HImockA,dims,dims0 = grid.comoving(blackman*dT_HImockA,map_ra,map_dec,nu,ndim)
-            dT_clean_mockB,dims,dims0 = grid.comoving(blackman*dT_clean_mockB,map_ra,map_dec,nu,ndim)
-            dT_HImockB,dims,dims0 = grid.comoving(blackman*dT_HImockB,map_ra,map_dec,nu,ndim)
+            dT_clean_mockA,dims,dims0 = grid.comoving(blackman*dT_clean_mockA,map_ra,map_dec,nu,W=W1,ndim=ndim)
+            dT_HImockA,dims,dims0 = grid.comoving(blackman*dT_HImockA,map_ra,map_dec,nu,W=W1,ndim=ndim)
+            dT_clean_mockB,dims,dims0 = grid.comoving(blackman*dT_clean_mockB,map_ra,map_dec,nu,W=W2,ndim=ndim)
+            dT_HImockB,dims,dims0 = grid.comoving(blackman*dT_HImockB,map_ra,map_dec,nu,W=W2,ndim=ndim)
         else:
             dT_clean_mockA = blackman*dT_clean_mockA
             dT_HImockA = blackman*dT_HImockA
             dT_clean_mockB = blackman*dT_clean_mockB
             dT_HImockB = blackman*dT_HImockB
         if TF2D==False:
-            Pk_dm,k,nmodes = power.Pk(dT_clean_mockA-dT_clean_dataA , dT_clean_mockB-dT_clean_dataB , dims,kbins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
-            Pk_dm_nosubA,k,nmodes = power.Pk(dT_clean_mockA , dT_clean_mockB-dT_clean_dataB , dims,kbins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
-            Pk_dm_nosubB,k,nmodes = power.Pk(dT_clean_mockA-dT_clean_dataA , dT_clean_mockB , dims,kbins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
-            Pk_mm,k,nmodes = power.Pk(dT_HImockA , dT_HImockB , dims,kbins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
+            Pk_dm,k,nmodes = power.Pk(dT_clean_mockA-dT_clean_dataA , dT_clean_mockB-dT_clean_dataB , dims,kbins,corrtype='HIauto',w1=w1_rg,w2=w2_rg,W1=W1_rg,W2=W2_rg)
+            Pk_dm_nosubA,k,nmodes = power.Pk(dT_clean_mockA , dT_clean_mockB-dT_clean_dataB , dims,kbins,corrtype='HIauto',w1=w1_rg,w2=w2_rg,W1=W1_rg,W2=W2_rg)
+            Pk_dm_nosubB,k,nmodes = power.Pk(dT_clean_mockA-dT_clean_dataA , dT_clean_mockB , dims,kbins,corrtype='HIauto',w1=w1_rg,w2=w2_rg,W1=W1_rg,W2=W2_rg)
+            Pk_mm,k,nmodes = power.Pk(dT_HImockA , dT_HImockB , dims,kbins,corrtype='HIauto',w1=w1_rg,w2=w2_rg,W1=W1_rg,W2=W2_rg)
         if TF2D==True:
-            Pk_dm,nmodes = power.PerpParaPk(dT_clean_mockA-dT_clean_dataA , dT_clean_mockB-dT_clean_dataB ,dims,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
-            Pk_mm,nmodes = power.PerpParaPk(dT_HImockA , dT_HImockB ,dims,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rgA,w2=w_HI_rgB,W1=W_HI_rgA,W2=W_HI_rgB)
+            Pk_dm,nmodes = power.Pk2D(dT_clean_mockA-dT_clean_dataA , dT_clean_mockB-dT_clean_dataB ,dims,kperpbins,kparabins,corrtype='HIauto',w1=w1_rg,w2=w2_rg,W1=W1_rg,W2=W2_rg)
+            Pk_mm,nmodes = power.Pk2D(dT_HImockA , dT_HImockB ,dims,kperpbins,kparabins,corrtype='HIauto',w1=w1_rg,w2=w2_rg,W1=W1_rg,W2=W2_rg)
         T[i] = Pk_dm / Pk_mm
         if TF2D==False:
             T_nosubA[i] = Pk_dm_nosubA / Pk_mm

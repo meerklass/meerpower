@@ -216,22 +216,31 @@ def ChiSquare(x_obs,x_mod,x_err,dof=None):
 ########################################################################
 from scipy.optimize import curve_fit
 
-def LSqFitCrossPkAmplitude(pk_gHI,sig_err,Pmod,zeff_,dims,kbins,kmin=None,kmax=None,b_g=1,f=0,R_beam=0,w1=None,w2=None,W1=None,W2=None):
-    ### Least-squares fit of cross-power single scaling power spectrum amplitude
+def LSqFitPkAmplitude(Pk,err,Pmod,zeff_,dims,kbins,corrtype='HIauto',kmin=None,kmax=None,b_g=1,f=0,sig_v=0,R_beam1=0,R_beam2=0,w1=None,w2=None,W1=None,W2=None):
+    ### Least-squares fit of power, single factor scaling power spectrum amplitude
     ### default assumes b_HI=1 and r=1, so fitting joint Omega_HI b_HI r parameter
+    ### if fitting auto-HI - leave b_g=1 and amplitude fit is Omega_HI^2 b_HI^2
+    # corrtype: type of correlation to compute, options are:
+    #   - corrtype='HIauto': (default) for HI auto-correlation of temp fluctuation field dT_HI = T_HI - <T_HI>
+    #   - corrtype='Cross': for HI-galaxy cross-correlation <dT_HI,n_g>
     global pkmod; global zeff; global kcut
     zeff = zeff_
-    pkmod,k,nmodes = PkMod(Pmod,dims,kbins,b2=b_g,f=f,R_beam1=R_beam,w1=w1,w2=w2,W1=W1,W2=W2,interpkbins=True,MatterRSDs=True)
+    pkmod,k,nmodes = PkMod(Pmod,dims,kbins,b2=b_g,f=f,sig_v=sig_v,R_beam1=R_beam1,R_beam2=R_beam2,w1=w1,w2=w2,W1=W1,W2=W2,interpkbins=True,MatterRSDs=True)
     # Implement any k-cuts:
     if kmin is None: kmin = kbins[0]
     if kmax is None: kmax = kbins[-1]
     kcut = (k>kmin) & (k<kmax)
-
-    popt, pcov = curve_fit(PkAmplitude, k[kcut], pk_gHI[kcut], p0=0.4e-3, sigma=sig_err[kcut], bounds=(0, 10))
+    if corrtype=='HIauto': popt, pcov = curve_fit(PkAutoAmp, k[kcut], Pk[kcut], p0=0.5e-3, sigma=err[kcut], bounds=(0, 10))
+    if corrtype=='Cross': popt, pcov = curve_fit(PkCrossAmp, k[kcut], Pk[kcut], p0=0.5e-3, sigma=err[kcut], bounds=(0, 10))
     OmHIbHI, OmHIbHI_err = popt[0],np.sqrt(pcov[0,0]) # take errors on parameter estimates as root of the covariance (since only 1 parameter, cov = [1,1] matrix)
     return OmHIbHI, OmHIbHI_err
 
-def PkAmplitude(k,OmHIbHI):
+def PkAutoAmp(k,OmHIbHI):
+    b_HI = 1
+    OmegaHI = OmHIbHI/b_HI
+    Tbar = HItools.Tbar(zeff,OmegaHI)
+    return Tbar**2*b_HI**2*pkmod[kcut]
+def PkCrossAmp(k,OmHIbHI):
     b_HI = 1
     OmegaHI = OmHIbHI/b_HI
     Tbar = HItools.Tbar(zeff,OmegaHI)

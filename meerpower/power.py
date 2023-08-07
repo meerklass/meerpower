@@ -94,7 +94,7 @@ def binpk(pkspec,dims,kbins,kcuts=None,FullPk=False,doindep=True):
     lx,ly,lz,nx,ny,nz = dims
     kspec,muspec,indep = getkspec(dims,FullPk)
     if kcuts is not None: # Remove kspec outside kcut range to exclude from bin average:
-        kperp,kpara = getkparakperp(nx,ny,nz,lx,ly,lz,FullPk=FullPk)
+        kperp,kpara,indep_perp,indep_para = getkspec2D(dims,FullPk)
         kperpcutmin,kperpcutmax,kparacutmin,kparacutmax = kcuts
         kspec[(kperp<kperpcutmin)] = np.nan
         kspec[(kperp>kperpcutmax)] = np.nan
