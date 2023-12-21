@@ -5,12 +5,21 @@ from scipy import integrate
 from scipy.interpolate import interp1d
 c_km = 299792.458 #m/s
 
-def SetCosmology(builtincosmo='Planck18',z=0,UseAstropy=True):
+def SetCosmology(builtincosmo='Planck18',z=0,UseAstropy=True,UseCAMB=True,UseNBK=False,UseCLASS=False):
     # UseAstropy: Set True to use astropy (where possible) for parameters and distances
     #             Set False to instead use manual calculations of parameters and distances
+    # UseNBK: Use Nbodykit for power spectrum and cosmology calculations - not compatible with CAMB
     global astropy; astropy = UseAstropy
-    import camb
-    from camb import model, initialpower
+    if UseNBK==True:
+        UseCAMB=False
+        from nbodykit.lab import cosmology
+    if UseCLASS==True:
+        UseCAMB=False
+        import classylss
+    if UseCAMB==True:
+        import camb
+        from camb import model, initialpower
+
     global H_0
     global h
     global D_z # Growth function D(z)
@@ -43,7 +52,7 @@ def SetCosmology(builtincosmo='Planck18',z=0,UseAstropy=True):
     A_s = 2.14e-9 # Scalar amplitude
     D_z = D(z) # Growth Function (normalised to unity for z=0)
     delta_c = 1.686
-    GetModelPk(z,1e-4,1e0,NonLinear=False) # Use to set global transfer function T
+    if UseCAMB==True: GetModelPk(z,1e-4,1e0,NonLinear=False,UseNBK=UseNBK) # Use to set global transfer function T
 
 #def astropy_cosmo():
 #    return cosmo
@@ -90,36 +99,50 @@ def D(z):
     D_z = 5/2 * Om0 * H_0**2 * H(z) * integrate.quad(integrand, z, 1e3)[0]
     return D_z / D_0 # Normalise such that D(z=0) = 1
 
-def GetModelPk(z,kmin=1e-3,kmax=10,NonLinear=False):
+def GetModelPk(z,kmin=1e-3,kmax=10,NonLinear=False,UseCAMB=True,UseNBK=False,UseCLASS=False):
     '''
-    Use pycamb to generate model power spectrum at redshift z
+    Generate model power spectrum at redshift z using pycamb (default) or can use
+    Nbodykit package
     '''
-    import camb
-    from camb import model, initialpower
-    # Declare minium k value for avoiding interpolating outside this value
-    global kmin_interp
-    kmin_interp = kmin
-    Oc0 = Om0 - Ob0 # Omega_c
-    #Set up the fiducial cosmology
-    pars = camb.CAMBparams()
-    #Set cosmology
-    pars.set_cosmology(H0=H_0,ombh2=Ob0*h**2,omch2=Oc0*h**2,omk=0,mnu=0)
-    pars.set_dark_energy() #LCDM (default)
-    pars.InitPower.set_params(ns=n_s, r=0, As=A_s)
-    pars.set_for_lmax(2500, lens_potential_accuracy=0);
-    #Calculate results for these parameters
-    results = camb.get_results(pars)
-    #Get matter power spectrum at some redshift
-    pars.set_matter_power(redshifts=[z], kmax=kmax)
-    if NonLinear==False: pars.NonLinear = model.NonLinear_none
-    if NonLinear==True: pars.NonLinear = model.NonLinear_both # Uses HaloFit
-    results.calc_power_spectra(pars)
-    k, z, pk = results.get_matter_power_spectrum(minkh=kmin, maxkh=kmax, npoints = 200)
-    # Define global transfer function to be called in other functions:
-    trans = results.get_matter_transfer_data()
-    k_trans = trans.transfer_data[0,:,0] #get kh - the values of k/h at which transfer function is calculated
-    transfer_func = trans.transfer_data[model.Transfer_cdm-1,:,0]
-    transfer_func = transfer_func/np.max(transfer_func)
-    global T
-    T = interp1d(k_trans, transfer_func) # Transfer function - set to global variable
-    return interp1d(k, pk[0])
+    if UseNBK==True or UseCLASS==True: UseCAMB = False
+    if UseCAMB==True:
+        import camb
+        from camb import model, initialpower
+        # Declare minium k value for avoiding interpolating outside this value
+        global kmin_interp
+        kmin_interp = kmin
+        Oc0 = Om0 - Ob0 # Omega_c
+        #Set up the fiducial cosmology
+        pars = camb.CAMBparams()
+        #Set cosmology
+        pars.set_cosmology(H0=H_0,ombh2=Ob0*h**2,omch2=Oc0*h**2,omk=0,mnu=0)
+        pars.set_dark_energy() #LCDM (default)
+        pars.InitPower.set_params(ns=n_s, r=0, As=A_s)
+        pars.set_for_lmax(2500, lens_potential_accuracy=0);
+        #Calculate results for these parameters
+        results = camb.get_results(pars)
+        #Get matter power spectrum at some redshift
+        pars.set_matter_power(redshifts=[z], kmax=kmax)
+        if NonLinear==False: pars.NonLinear = model.NonLinear_none
+        if NonLinear==True: pars.NonLinear = model.NonLinear_both # Uses HaloFit
+        results.calc_power_spectra(pars)
+        k, z, pk = results.get_matter_power_spectrum(minkh=kmin, maxkh=kmax, npoints = 200)
+        # Define global transfer function to be called in other functions:
+        trans = results.get_matter_transfer_data()
+        k_trans = trans.transfer_data[0,:,0] #get kh - the values of k/h at which transfer function is calculated
+        transfer_func = trans.transfer_data[model.Transfer_cdm-1,:,0]
+        transfer_func = transfer_func/np.max(transfer_func)
+        global T
+        T = interp1d(k_trans, transfer_func) # Transfer function - set to global variable
+        return interp1d(k, pk[0])
+    if UseNBK==True:
+        from nbodykit.lab import cosmology
+        cosmo = cosmology.Planck15
+        return cosmology.LinearPower(cosmo, z, transfer='EisensteinHu')
+    if UseCLASS==True:
+        import classylss.binding as CLASS
+        #cosmo = CLASS.ClassEngine({'output': 'dTk vTk mPk', 'non linear': 'halofit', 'P_k_max_h/Mpc' : 20., "z_max_pk" : 100.0})
+        cosmo = CLASS.ClassEngine({'output': 'dTk vTk mPk', 'P_k_max_h/Mpc' : 20., "z_max_pk" : 100.0})
+        sp = CLASS.Spectra(cosmo)
+        k = np.linspace(kmin,kmax,10000)
+        return interp1d(k, sp.get_pk(k=k,z=z) )

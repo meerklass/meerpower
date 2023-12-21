@@ -2,19 +2,20 @@ import numpy as np
 import scipy
 from scipy.interpolate import interp1d
 import power
-import HItools
+#import HItools
 import grid
 import plot
 import matplotlib.pyplot as plt
 H_0 = 67.7 # Planck15
 
-def FitPolynomial(x,y,n):
+def FitPolynomial(x,y,n,returncoef=False):
     ### Fit a polynomial of order n to a generic 1D data array [x,y]
     coef = np.polyfit(x,y,n)
     func = np.zeros(len(x)) # fitted function
     for i in range(n+1):
         func += coef[-(i+1)]*x**i
-    return func
+    if returncoef==False: return func
+    if returncoef==True: return func,coef
 
 def fix_pixels(input,W,IncludeDeadLoS=False):
 
@@ -55,29 +56,27 @@ def fix_pixels(input,W,IncludeDeadLoS=False):
     input[np.isnan(input)] = 0 # convert NaNs back to zeros
     return input,W_fix
 
-def PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,sig_N=0,w1=None,w2=None,W1=None,W2=None,MatterRSDs=False,lwin=None,pixwin=None,s_para=0,Damp=None,gridinterp=False):
+def PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,sig_N=0,w1=None,w2=None,W1=None,W2=None,MatterRSDs=False,lwin=None,pixwin=None,s_pix=0,s_pix_ra=0,s_pix_dec=0,s_para=0,Damp=None,reGriddamp=False,gridinterp=False):
     ### Separate function to PkMod which leaves model Pk in 3D spectrum format
     if len(dims)==6: lx,ly,lz,nx,ny,nz = dims
     if len(dims)==9: lx,ly,lz,nx,ny,nz,x0,y0,z0 = dims
-    kspec[kspec==0] = 1 # avoid model interpolation error from k=0
+    kspec[kspec==0] = 1 # avoid Pmod-model interpolation for k=0
     # Collect damping terms from beam/FG/channels/heapy pixelisation:
-    if Damp is None: Damp = B_beam(muspec,kspec,R_beam1)*B_beam(muspec,kspec,R_beam2)
+    if Damp is None: Damp = B_beam(muspec,kspec,R_beam1)*B_beam(muspec,kspec,R_beam2)*B_chan(muspec,kspec,s_para)**2*B_pix(muspec,kspec,s_pix)**2*B_ra(dims,s_pix_ra=0)**2*B_dec(dims,s_pix_dec=0)**2*B_ang(muspec,kspec,pixwin)**2
+    if reGriddamp==True: # pixelised damping from binning sky particles onto Fouried grid
+        s_pix_grid = np.mean([lx/nx,ly/ny,ly/ny])
+        B_pix_grid = np.sin(kspec*s_pix_grid/2)/(kspec*s_pix_grid/2)
+        Damp *= B_pix_grid**2
     if sig_N!=0: P_N = sig_N**2 * (lx*ly*lz)/(nx*ny*nz) # noise term
     else: P_N = 0
     if MatterRSDs==False: beta1,beta2 = f/b1,f/b2 # Include bias in Kaiser term (sensitive in quadrupole)
     if MatterRSDs==True: beta1,beta2 = f,f # Exclude bias in Kaiser term, i.e. only apply RSD to dark matter field, leaving a single amplitude parameter to constrain
-
-
-    # Do full model i.e. eq 12 in Wolz+21.
-    ###### Old method applying beam, bias and Kaiser on the interpolared grid ####
-    if gridinterp==True: # Do full grid interp, creates spiky model due to uneven distribution of kperp/kpara pixels into bins
+    if gridinterp==True: # Do full grid interp
         pkspecmod = Damp * Tbar1*Tbar2 * b1*b2*( r + (beta1 + beta2)*muspec**2 + beta1*beta2*muspec**4 ) / (1 + (kspec*muspec*sig_v/H_0)**2) * Pmod(kspec) + P_N
         if w1 is not None or w2 is not None or W1 is not None or W2 is not None: # Convolve with window
             pkspecmod = power.getpkconv(pkspecmod,dims,w1,w2,W1,W2)
         return pkspecmod
-    ############################################################################
 
-    #'''
     kmod = np.linspace(np.min(kspec),np.max(kspec),1000)
     Pk_int = lambda mu: Tbar1*Tbar2 * b1*b2*( r + (beta1 + beta2)*mu**2 + beta1*beta2*mu**4 ) / (1 + (k_i*mu*sig_v/H_0)**2) * Pmod(k_i) * B_beam(mu,k_i,R_beam1) * B_beam(mu,k_i,R_beam2) + P_N
     pkmod = np.zeros(len(kmod))
@@ -86,61 +85,6 @@ def PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1
         k_i = kmod[i]
         pkmod[i] = scipy.integrate.quad(Pk_int, 0, 1)[0]
     pkmod = interp1d(kmod, pkmod)
-    #'''
-
-    ##### BELOW IS WORKING ATTEMPT TO DEVELOP A HIGHLY SAMPLED ANISOTROPIC MODEL WHICH IS THEN
-    #####    INTERPOLATABLE ONTO THE DATA GRID SO THAT CONVOLUTION WITH WINDOW AND WEIGHT
-    #####    FUNCTIONS IS POSSIBLE
-    '''
-    from scipy.interpolate import interpn
-    nxgrid,nygrid,nzgrid = np.linspace(1,nx,nx),np.linspace(1,ny,ny),np.linspace(1,nz,nz)
-    ngrid = (nxgrid,nygrid,nzgrid)
-    nxmod,nymod,nzmod = 256,256,256
-
-    lxmod,lymod,lzmod = 1000,1000,1000
-    dims = [lxmod,lymod,lzmod,nxmod,nymod,nzmod]
-    kspecmod,muspecmod,indep = power.getkspec(dims,FullPk=True)
-    kspecmod[kspecmod==0] = 1 # avoid model interpolation error from k=0
-
-    Damp = B_beam(muspecmod,kspecmod,R_beam1)*B_beam(muspecmod,kspecmod,R_beam2)
-
-    ###
-    nxgrid,nygrid,nzgrid = np.linspace(1,nx,nx),np.linspace(1,ny,ny),np.linspace(1,nz,nz)
-    ngrid = (nxgrid,nygrid,nzgrid)
-    nxmod,nymod,nzmod = 256,256,256
-    dimsmod = [lx,ly,lz,nxmod,nymod,nzmod]
-    nxgrid_mod,nygrid_mod,nzgrid_mod = np.linspace(1,nx,nxmod),np.linspace(1,ny,nymod),np.linspace(1,nz,nzmod)
-    i_coords,j_coords,k_coords = np.meshgrid(nxgrid_mod,nygrid_mod,nzgrid_mod, indexing='ij')
-    coordinate_grid = np.array([i_coords,j_coords,k_coords])
-    coordinate_grid = np.swapaxes(coordinate_grid,0,1)
-    coordinate_grid = np.swapaxes(coordinate_grid,1,2)
-    coordinate_grid = np.swapaxes(coordinate_grid,2,3)
-    print(np.shape(ngrid))
-    print(ngrid[0])
-    print(np.shape(coordinate_grid))
-    exit()
-    ###
-
-    pkspecmod = Damp * Tbar1*Tbar2 * b1*b2*( r + (beta1 + beta2)*muspecmod**2 + beta1*beta2*muspecmod**4 ) / (1 + (kspecmod*muspecmod*sig_v/H_0)**2) * Pmod(kspecmod) + P_N
-
-    pkspec = interpn(kspec, pkspecmod, kspecmod)
-    print(np.shape(pkspec))
-    exit()
-
-    nxgrid,nygrid,nzgrid = np.linspace(1,nx,nx),np.linspace(1,ny,ny),np.linspace(1,nz,nz)
-    ngrid = (nxgrid,nygrid,nzgrid)
-    nxmod,nymod,nzmod = 256,256,256
-    #kbinsmod = np.linspace(kbins[0],kbins[-1],200)
-    dimsmod = [lx,ly,lz,nxmod,nymod,nzmod]
-    nxgrid_mod,nygrid_mod,nzgrid_mod = np.linspace(1,nx,nxmod),np.linspace(1,ny,nymod),np.linspace(1,nz,nzmod)
-    i_coords,j_coords,k_coords = np.meshgrid(nxgrid_mod,nygrid_mod,nzgrid_mod, indexing='ij')
-    coordinate_grid = np.array([i_coords,j_coords,k_coords])
-    coordinate_grid = np.swapaxes(coordinate_grid,0,1)
-    coordinate_grid = np.swapaxes(coordinate_grid,1,2)
-    coordinate_grid = np.swapaxes(coordinate_grid,2,3)
-    w_HI_mod = interpn(ngrid, w_HI, coordinate_grid)
-    '''
-
     pkspecmod = pkmod(kspec)
     '''
     if MatterRSDs==True: # Only apply Kaiser term to matter power spectrum leaving a single amplitude parameter
@@ -151,14 +95,65 @@ def PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1
         pkspecmod = power.getpkconv(pkspecmod,dims,w1,w2,W1,W2)
     return pkspecmod
 
-def PkMod(Pmod,dims,kbins,b1=1,b2=1,f=0,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,sig_N=0,w1=None,w2=None,W1=None,W2=None,doMultipole=False,Pk2D=False,kperpbins=None,kparabins=None,MatterRSDs=False,interpkbins=False,lwin=None,pixwin=None,s_para=0,Damp=None,gridinterp=False):
+def theta_n(nxi,nyi,nzi):
+    if (nxi + nyi + nzi) % 2 == 0: return 1 # even
+    else: return 0
+
+def PkMod(Pmod,dims,kbins,b1=1,b2=1,f=0,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,sig_N=0,w1=None,w2=None,W1=None,W2=None,doMultipole=False,Pk2D=False,kperpbins=None,kparabins=None,MatterRSDs=False,interpkbins=False,lwin=None,pixwin=None,s_pix=0,s_pix_ra=0,s_pix_dec=0,s_para=0,Damp=None,reGriddamp=False,gridinterp=False):
     ### r is cross-correlation coeficient if doing a cross-correlation, set all _1 and _2 parameters
     ###  equal if doing an auto correlation
     #if len(dims)==6: lx,ly,lz,nx,ny,nz = dims
     #if len(dims)==9: lx,ly,lz,nx,ny,nz,x0,y0,z0 = dims
     if interpkbins==True: # If True, interpolate model Pk over same grid and bin using same pipeline as data
         kspec,muspec,indep = power.getkspec(dims,FullPk=True)
-        pkspecmod = PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,MatterRSDs,lwin,pixwin,s_para,Damp=Damp,gridinterp=gridinterp)
+        pkspecmod = PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,MatterRSDs,lwin,pixwin,s_pix,s_pix_ra,s_pix_dec,s_para,Damp=Damp,reGriddamp=reGriddamp,gridinterp=gridinterp)
+
+        #pkspecmod /= power.W(dims,p=2,FullPk=True)**2
+        #pkspecmod = power.W(dims,p=2,FullPk=True,field=pkspecmod)
+        '''
+        lx,ly,lz,nx,ny,nz = dims
+        nyqx,nyqy,nyqz = nx*np.pi/lx,ny*np.pi/ly,nz*np.pi/lz
+        kx = 2*np.pi*np.fft.fftfreq(nx,d=lx/nx)[:,np.newaxis,np.newaxis]
+        ky = 2*np.pi*np.fft.fftfreq(ny,d=ly/ny)[np.newaxis,:,np.newaxis]
+        kz = 2*np.pi*np.fft.fftfreq(nz,d=lz/nz)[np.newaxis,np.newaxis,:]
+        pkspecmod = 0
+        shiftarray = np.linspace(-1,1,3) # integer vectors by which to nudge the nyquist freq.
+        for ix in shiftarray:
+            for iy in shiftarray:
+                for iz in shiftarray:
+                    kx1 = kx + 2*nyqx*ix
+                    ky1 = ky + 2*nyqy*iy
+                    kz1 = kz + 2*nyqz*iz
+                    kspec1 = np.sqrt(kx1**2 + ky1**2 + kz1**2)
+                    kspec1[0,0,0] = 1 # to avoid divide by zero error
+                    muspec1 = np.absolute(kz1)/kspec1
+                    muspec1[0,0,0] = 1 # divide by k=0, means mu->1
+                    kspec1[0,0,0] = 0 # reset
+
+                    p = 4
+                    qx1,qy1,qz1 = (np.pi*kx1)/(2*nyqx),(np.pi*ky1)/(2*nyqy),(np.pi*kz1)/(2*nyqz)
+                    wx = np.divide(np.sin(qx1),qx1,out=np.ones_like(qx1),where=qx1!=0.)
+                    wy = np.divide(np.sin(qy1),qy1,out=np.ones_like(qy1),where=qy1!=0.)
+                    wz = np.divide(np.sin(qz1),qz1,out=np.ones_like(qz1),where=qz1!=0.)
+                    W = (wx*wy*wz)**p
+                    #if ix==0 and iy==0 and iz==0: pkspecmod += PkModSpec(Pmod,dims,kspec1,muspec1,b1,b2,f,sig_v,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,MatterRSDs,lwin,pixwin,s_pix,s_pix_ra,s_pix_dec,s_para,Damp=Damp,reGriddamp=reGriddamp,gridinterp=gridinterp)
+                    #else: pkspecmod += W**2*PkModSpec(Pmod,dims,kspec1,muspec1,b1,b2,f,sig_v,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,MatterRSDs,lwin,pixwin,s_pix,s_pix_ra,s_pix_dec,s_para,Damp=Damp,reGriddamp=reGriddamp,gridinterp=gridinterp)
+
+                    pkspecmod += theta_n(ix,iy,iz) * W**2*PkModSpec(Pmod,dims,kspec1,muspec1,b1,b2,f,sig_v,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,MatterRSDs,lwin,pixwin,s_pix,s_pix_ra,s_pix_dec,s_para,Damp=Damp,reGriddamp=reGriddamp,gridinterp=gridinterp)
+        '''
+
+
+        '''
+        ### Plot damping terms(k) - make sure each input R_beam,s_para etc. is not zero
+        Fbeam,k,nmodes = power.binpk(B_beam(muspec,kspec,R_beam1)**2,dims[:6],kbins,FullPk=True,doindep=False)
+        Fchan,k,nmodes = power.binpk(B_chan(muspec,kspec,s_para)**2,dims[:6],kbins,FullPk=True,doindep=False)
+        Fpix,k,nmodes = power.binpk(B_pix(muspec,kspec,s_pix)**2,dims[:6],kbins,FullPk=True,doindep=False)
+        plt.plot(k,Fbeam)
+        plt.plot(k,Fchan)
+        plt.plot(k,Fpix)
+        plt.show()
+        exit()
+        '''
         if doMultipole==False:
             if Pk2D==False:
                 pkmod,k,nmodes = power.binpk(pkspecmod,dims[:6],kbins,FullPk=True,doindep=False)
@@ -188,6 +183,105 @@ def PkMod(Pmod,dims,kbins,b1=1,b2=1,f=0,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_
 def B_beam(mu,k,R_beam):
     if R_beam==0: return 1
     return np.exp( -(1-mu**2)*k**2*R_beam**2/2 )
+
+def B_ra(dims,s_pix_ra=0):
+    ### damping due to R.A. angular pixelisation:
+    lx,ly,lz,nx,ny,nz = dims
+    kx = 2*np.pi*np.fft.fftfreq(nx,d=lx/nx)
+    if s_pix_ra==0: return 1
+    res = np.sin(kx*s_pix_ra/2)/(kx*s_pix_ra/2)
+    return res
+
+def B_dec(dims,s_pix_dec=0):
+    ### damping due to Dec. angular pixelisation:
+    lx,ly,lz,nx,ny,nz = dims
+    ky = 2*np.pi*np.fft.fftfreq(ny,d=ly/ny)
+    if s_pix_dec==0: return 1
+    res = np.sin(ky*s_pix_dec/2)/(ky*s_pix_dec/2)
+    return res
+
+def B_vox(dims):
+    ### damping due to cubic pixelisation in 3D voxels:
+    lx,ly,lz,nx,ny,nz = dims
+    nyqx,nyqy,nyqz = nx*np.pi/lx,ny*np.pi/ly,nz*np.pi/lz
+    kx = 2*np.pi*np.fft.fftfreq(nx,d=lx/nx)[:,np.newaxis,np.newaxis]
+    ky = 2*np.pi*np.fft.fftfreq(ny,d=ly/ny)[np.newaxis,:,np.newaxis]
+    kz = 2*np.pi*np.fft.fftfreq(nz,d=lz/nz)[np.newaxis,np.newaxis,:]
+    spixx = lx/nx/2
+    spixy = ly/ny/2
+    spixz = lz/nz/2
+
+    qx1,qy1,qz1 = kx*spixx/2,ky*spixy/2,kz*spixz/2
+    bx = np.divide(np.sin(qx1),qx1,out=np.ones_like(qx1),where=qx1!=0.)
+    by = np.divide(np.sin(qy1),qy1,out=np.ones_like(qy1),where=qy1!=0.)
+    bz = np.divide(np.sin(qz1),qz1,out=np.ones_like(qz1),where=qz1!=0.)
+    return bx*by*bz
+
+def B_pix(mu=None,k=None,k_perp=None,s_pix=0):
+    ### damping due to angular pixelisation:
+    # Use k_perp = kx or ky to apply damping seperately to x,y directions
+    if s_pix==0: return 1
+    if k_perp is None: k_perp = k*np.sqrt(1-mu**2)
+    q = k_perp*s_pix/2
+    res = np.divide(np.sin(q),q,out=np.ones_like(q),where=q!=0.)
+    return res
+
+def B_chan(mu,k,s_para):
+    ### damping due to radial binning in redshift or frequency channels:
+    if s_para==0: return 1
+    k_para = k*mu
+    q = k_para*s_para/2
+    res = np.divide(np.sin(q),q,out=np.ones_like(q),where=q!=0.)
+    return res
+
+def B_ang(mu,k,pixwin=None):
+    if pixwin is None: return 1
+    k_perp = k*np.sqrt(1-mu**2)
+    return pixwin(k_perp)
+
+def HealpixPixelWindow(nside,d_c,kperpmax=10):
+    '''
+    Use Healpy to get healpix window function:
+    https://healpy.readthedocs.io/en/latest/generated/healpy.sphtfunc.pixwin.html
+    Also extrapolate it to very small scales (~linear extrapolation) so it can be
+    used to damp model at very high-k where window function -> 0
+    '''
+    import healpy as hp
+    lmax = 2000 # highest healpy window function calculates to
+    win = hp.pixwin(nside,lmax=lmax)
+    l = np.arange(len(win))
+    kperp = l/d_c
+    # Use n=1 polynomial (linear) fit for extrapolation of window function to high kperp
+    rangefrac = 0.7 # portion of scales above to extrapolate from
+                    #   - set high-ish so its a linear extrapolation to small scales
+    smallscalemask = kperp > rangefrac*np.max(kperp)
+    pixwin,coef = FitPolynomial(kperp[smallscalemask],win[smallscalemask],n=1,returncoef=True)
+    kperp_extrap = np.linspace(np.max(kperp),kperpmax,500)
+    pixwin_extrap = np.zeros(len(kperp_extrap)) # fitted function
+    for i in range(2):
+        pixwin_extrap += coef[-(i+1)]*kperp_extrap**i
+    pixwin_extrap[pixwin_extrap<0] = 0 # set window function to zero at high kperp
+    kperp = np.append(kperp,kperp_extrap)
+    pixwin = np.append(win,pixwin_extrap)
+    return interp1d(kperp, pixwin)
+
+def W_mas(dims,window='nnb',FullPk=False):
+    '''Hockney Eastwood mass assignment corrections'''
+    if window=='nnb' or 'ngp': p = 1
+    if window=='cic': p = 2
+    if window=='tsc': p = 3
+    if window=='pcs': p = 4
+    lx,ly,lz,nx,ny,nz = dims[:6]
+    nyqx,nyqy,nyqz = nx*np.pi/lx,ny*np.pi/ly,nz*np.pi/lz
+    kx = 2*np.pi*np.fft.fftfreq(nx,d=lx/nx)[:,np.newaxis,np.newaxis]
+    ky = 2*np.pi*np.fft.fftfreq(ny,d=ly/ny)[np.newaxis,:,np.newaxis]
+    if FullPk==False: kz = 2*np.pi*np.fft.fftfreq(nz,d=lz/nz)[:int(nz/2)+1][np.newaxis,np.newaxis,:]
+    if FullPk==True: kz = 2*np.pi*np.fft.fftfreq(nz,d=lz/nz)[np.newaxis,np.newaxis,:]
+    qx,qy,qz = (np.pi*kx)/(2*nyqx),(np.pi*ky)/(2*nyqy),(np.pi*kz)/(2*nyqz)
+    wx = np.divide(np.sin(qx),qx,out=np.ones_like(qx),where=qx!=0.)
+    wy = np.divide(np.sin(qy),qy,out=np.ones_like(qy),where=qy!=0.)
+    wz = np.divide(np.sin(qz),qz,out=np.ones_like(qz),where=qz!=0.)
+    return (wx*wy*wz)**p
 
 ### Detection Calculation:
 def DetectionSigma(data,model,errors,nullmodel=None):
@@ -249,8 +343,6 @@ def PkCrossAmp(k,OmHIbHI):
 ########################################################################
 # MCMC Fitting Functions                                               #
 ########################################################################
-import emcee
-
 def model(theta,k):
     if ndim==1:
         OmHI = theta
@@ -287,6 +379,7 @@ def runMCMC(k,Pk,Pkerr,Omega_HI_fid,b_HI_fid,zeff_,Pmod_,b_g_,f_,sig_v_,r_HIg_,R
     '''
     Main run function for MCMC
     '''
+    import emcee
     global zeff; global Pmod; global b_g; global f; global sig_v; global r_HIg; global R_beam; global dims; global kbins; global w_g; global W_g; global w_HI; global W_HI; global ndim
     zeff=zeff_; Pmod=Pmod_; b_g=b_g_; f=f_; sig_v=sig_v_; r_HIg=r_HIg_; R_beam=R_beam_; dims=dims_; kbins=kbins_; w_g=w_g_; W_g=W_g_; w_HI=w_HI_; W_HI=W_HI_; ndim=ndim_
 

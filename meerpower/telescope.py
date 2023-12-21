@@ -4,6 +4,7 @@ c = 299792458 # speed of light m/s
 import cosmo
 import HItools
 from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter1d
 
 def P_noise(A_sky,theta_FWHM,t_tot,N_dish,nu,lz,T_sys=None,deltav=1,epsilon=1,hitmap=None,return_sigma_N=False,verbose=False):
     ### Return a scale invariant level for the thermal noise power spectrum
@@ -67,6 +68,24 @@ def getbeampars(D_dish,nu,gamma=None,verbose=False):
     if gamma is not None and gamma!=0: R_beam = gamma*R_beam
     if verbose==True: print('\nTelescope Params: Dish size =',D_dish,'m, R_beam =',np.round(R_beam,1),'Mpc/h, theta_FWHM =',np.round(theta_FWHM,2),'deg')
     return theta_FWHM,R_beam
+
+def ConvolveMap(map,theta_FWHM,ra,dec,mode='wrap'):
+    '''Gaussian smoothing at map level to be used on sims for replicating angular
+    beam perpendicular to line-of-sight'''
+    # Uses 1d gaussian smoothing along RA/Dec directions, allowing for different
+    #  pixel sizes along both directions. 2 1d smoothings along axes=0,1 equivalent
+    #  to a combined 2D simultaneous smoothing of same sigma
+    sig_beam = theta_FWHM/(2*np.sqrt(2*np.log(2)))
+    ra[ra>180] = ra[ra>180] - 360
+    dra = np.mean(np.diff(ra,axis=0)) # pixel size [deg] in RA direction
+    ddec = np.mean(np.diff(dec,axis=1)) # pixel size [deg] in Dec direction
+    nnu = np.shape(map)[2]
+    if np.isscalar(theta_FWHM): sig_beam = np.repeat(sig_beam,nnu) # Freq-indep. beam
+    map_smooth = np.zeros(np.shape(map))
+    for i in range(nnu):
+        map_smooth[:,:,i] = gaussian_filter1d(map[:,:,i], sigma=sig_beam[i]/dra, axis=0, mode=mode)
+        map_smooth[:,:,i] = gaussian_filter1d(map_smooth[:,:,i], sigma=sig_beam[i]/ddec, axis=1, mode=mode)
+    return map_smooth
 
 def ConvolveCube(dT,dims,R_beam=None,BeamType='Gaussian',ReConvolve=False,W=None,nu=None,D_dish=None,gamma=1,verbose=False):
     '''
@@ -148,7 +167,7 @@ def ReConvolve(dT,dims,W=None,nu=None,D_dish=None,gamma=1):
             dT_smooth[:,:,i] = dT_weighted / norm
     return dT_smooth
 
-def smooth(dT,map_ra,map_dec,nu, D_dish,gamma=1,freqdep=False):
+def smooth(dT,ra,dec,nu,D_dish,gamma=1,freqdep=False):
     ''' Gaussian smooth with constant beam size
     '''
     '''
@@ -166,7 +185,7 @@ def smooth(dT,map_ra,map_dec,nu, D_dish,gamma=1,freqdep=False):
     d0 = np.min(dec) + decwidth/2 # central dec coordinate - Gaussian peaks here
     '''
     dT_smooth = np.copy(dT)
-    r,d = np.copy(map_ra),np.copy(map_dec)
+    r,d = np.copy(ra),np.copy(dec)
     r[r>180] = r[r>180]-360
     r0 = np.median(r)
     d0 = np.median(d)

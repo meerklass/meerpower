@@ -4,6 +4,7 @@ from astropy.wcs import WCS
 from astropy.wcs.utils import pixel_to_skycoord
 import os
 import plot
+import matplotlib.pyplot as plt
 
 def ReadIn(map_file,counts_file=None,numin=971,numax=1023.8,getcoord=True):
     ''' Read-in .fits file for level6 or level5 saved maps '''
@@ -112,10 +113,35 @@ def FilterIncompleteLoS(map,w,W,counts):
     counts[np.logical_not(W_fullLoS)] = 0
     return map,w,W,counts
 
-def MapTrim(map,w,W,counts,ra,dec,ramin=334,ramax=357,decmin=-35,decmax=-26.5):
+def MapTrim(ra,dec,map1,map2=None,map3=None,map4=None,ramin=334,ramax=357,decmin=-35,decmax=-26.5):
     trimcut = (ra<ramin) + (ra>ramax) + (dec<decmin) + (dec>decmax)
-    map[trimcut],w[trimcut],W[trimcut],counts[trimcut] = 0,0,0,0
-    return map,w,W,counts
+    map1[trimcut] = 0
+    if map2 is None: return map1
+    else: map2[trimcut] = 0
+    if map3 is None: return map1,map2
+    else: map3[trimcut] = 0
+    if map4 is None: return map1,map2,map3
+    else: map4[trimcut] = 0
+    return map1,map2,map3,map4
+
+def GridTrim(f1,f2=None,f3=None,f4=None,x0=0,x1=None,y0=0,y1=None):
+    nx,ny,nz = np.shape(f1)
+    if x1==None: x1 = nx
+    if y1==None: y1 = ny
+    if x1<0: x1 = nx+(x1-1)
+    if y1<0: y1 = ny+(y1-1)
+    x = np.arange(0,nx)
+    y = np.arange(0,ny)
+    x,y = np.tile(x[:,np.newaxis],(1,ny)),np.tile(y[np.newaxis,:],(nx,1))
+    trimcut = (x<x0) + (x>x1) + (y<y0) + (y>y1)
+    f1[trimcut] = 0
+    if f2 is None: return f1
+    else: f2[trimcut] = 0
+    if f3 is None: return f1,f2
+    else: f3[trimcut] = 0
+    if f4 is None: return f1,f2,f3
+    else: f4[trimcut] = 0
+    return f1,f2,f3,f4
 
 #def ReadInLevel62021_Sims(dT_MK,W,counts,dims,ra,dec,nu,PerturbFGs=False,SecondPatch=False,doBeam=False,T_sys=16e3,doRSD=False):
 def ReadIn_Sim(dT_MK,W,counts,dims,ra,dec,nu,PerturbFGs=False,SecondPatch=False,doBeam=False,T_sys=16e3,doRSD=False):

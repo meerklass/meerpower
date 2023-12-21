@@ -26,6 +26,7 @@ import warnings
 __all__ = ['fft', 'ifft', 'fftfreq', 'fftshift', 'ifftshift']
 
 # Try importing the pyFFTW interface
+'''
 try:
 
     from multiprocessing import cpu_count
@@ -54,6 +55,10 @@ try:
 except ImportError:
     HAVE_FFTW = False
     from numpy.fft import fftn, ifftn, ifftshift as _ifftshift, fftshift as _fftshift, fftfreq as _fftfreq
+'''
+HAVE_FFTW = False
+from numpy.fft import fftn, ifftn, ifftshift as _ifftshift, fftshift as _fftshift, fftfreq as _fftfreq
+
 
 # To avoid MKL-related bugs, numpy needs to be imported after pyfftw: see https://github.com/pyFFTW/pyFFTW/issues/40
 import numpy as np
