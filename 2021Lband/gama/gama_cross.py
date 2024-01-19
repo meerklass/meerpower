@@ -156,6 +156,7 @@ w_g_rg = taper_g*w_g_rg
 Pk_g,k,nmodes = power.Pk(n_g_rg,n_g_rg,dims_rg,kbins,corrtype='Galauto',w1=w_g_rg,w2=w_g_rg,W1=W01_g_rg,W2=W01_g_rg)
 nbar = np.sum(n_g_rg)/(lx*ly*lz) # Calculate number density inside survey footprint
 P_SN = np.ones(len(k))*1/nbar # approximate shot-noise for errors (already subtracted in Pk estimator)
+'''
 pkmod,k = model.PkMod(Pmod,dims_rg,kbins,b_g,b_g,f,sig_v,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,w1=w_g_rg,w2=w_g_rg,W1=W01_g_rg,W2=W01_g_rg,interpkbins=True,MatterRSDs=False,gridinterp=True)[0:2]
 sig_g = 1/np.sqrt(nmodes)*(Pk_g+P_SN)
 plt.errorbar(k,Pk_g,sig_g,ls='none',marker='o')
@@ -168,6 +169,7 @@ plt.axhline(0,lw=0.8,color='black')
 plt.figure()
 #plt.show()
 #exit()
+'''
 
 ra_p,dec_p,nu_p,pixvals = grid.SkyPixelParticles(ra,dec,nu,wproj,map=w_HI,W=W_HI,Np=Np)
 xp,yp,zp = grid.SkyCoordtoCartesian(ra_p,dec_p,HItools.Freq2Red(nu_p),ramean_arr=ra,decmean_arr=dec,doTile=False)
@@ -175,8 +177,9 @@ w_HI_rg,W_fft,counts = grid.mesh(xp,yp,zp,pixvals,dims0_rg,window,compensate,int
 # Multiply tapering window by all weights and window
 w_HI_rg,W01_HI_rg = taper_HI*w_HI_rg,taper_HI*W01_HI_rg
 
-N_fgs = [6,7,8]
-#N_fgs = [5]
+#N_fgs = [6,7,8]
+N_fgs = [7]
+'''
 colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown', 'tab:pink', 'tab:gray']
 for i in range(len(N_fgs)):
     print(i)
@@ -202,9 +205,37 @@ dpix = 0.3
 d_c = cosmo.d_com(HItools.Freq2Red(np.min(nu)))
 s_pix = d_c * np.radians(dpix)
 s_para = np.mean( cosmo.d_com(HItools.Freq2Red(nu[:-1])) - cosmo.d_com(HItools.Freq2Red(nu[1:])) )
-pkmod,k = model.PkMod(Pmod,dims_rg,kbins,b_HI,b_g,f,sig_v,Tbar1=Tbar,Tbar2=1,r=1,R_beam1=R_beam,R_beam2=0,w1=W01_HI_rg,w2=W01_g_rg,W1=W01_HI_rg,W2=W01_g_rg,s_pix=s_pix,s_para=s_para,interpkbins=True,MatterRSDs=False,gridinterp=True)[0:2]
+pkmod,k = model.PkMod(Pmod,dims_rg,kbins,b_HI,b_g,f,sig_v,Tbar1=Tbar,Tbar2=1,r=1,R_beam1=R_beam,R_beam2=0,w1=w_HI_rg,w2=W01_g_rg,W1=W01_HI_rg,W2=W01_g_rg,s_pix=s_pix,s_para=s_para,interpkbins=True,MatterRSDs=False,gridinterp=True)[0:2]
 plt.plot(k,norm*pkmod,color='black',ls='--',label=r'Model [$\Omega_{\rm HI}b_{\rm HI} = %s \times 10^{-3}]$'%np.round(OmegaHI*b_HI*1e3,2))
 
+if norm[0]==1.0: plt.loglog()
+plt.legend(fontsize=12,loc='upper left',bbox_to_anchor=[1,1])
+#plt.title('Null Test (shuffled GAMA redshifts) MeerKAT 2021 x GAMA (no TF)')
+plt.xlabel(r'$k\,[h\,{\rm Mpc}^{-1}]$')
+if norm[0]==1.0: plt.ylabel(r'$P_{\rm g,HI}(k)\,[{\rm mK}\,h^{-3}{\rm Mpc}^{3}]$')
+else: plt.ylabel(r'$k^2\,P_{\rm g,HI}(k)\,[{\rm mK}\,h^{-1}{\rm Mpc}]$')
+plt.axhline(0,lw=0.8,color='black')
+plt.subplots_adjust(right=0.75)
+plt.figure()
+#exit()
+'''
+
+### Calculate Transfer function:
+LoadTF = False
+Nmock = 500
+mockfilepath_HI = '/idia/projects/hi_im/meerpower/2021Lband/mocks/dT_HI_p0.3d_wBeam'
+mockfilepath_g = '/idia/projects/hi_im/meerpower/2021Lband/mocks/mockGAMAcat'
+N_fgs = [5,6,7,8,9,10]
+kperpbins = np.linspace(0.008,0.3,34)
+kparabins = np.linspace(0.003,0.6,22)
+for i in range(len(N_fgs)):
+    TFfile = '/users/scunnington/hi_im/meerpower/2021Lband/gama/TFdata/T_Nfg=%s'%N_fgs[i]
+    T,T_nosub,k = foreground.TransferFunction(MKmap,Nmock,N_fgs[i],'Cross',kbins,k,TFfile,mockfilepath_HI,mockfilepath_g,W_HI,w_HI_rg,W01_HI_rg,W01_g_rg,W01_g_rg,ra,dec,nu,wproj,dims0_rg,Np,window,compensate,interlace,taper_HI,taper_g,LoadTF)
+    TFfile = '/users/scunnington/hi_im/meerpower/2021Lband/gama/TFdata/T2D_Nfg=%s'%N_fgs[i]
+    T2D,k2d = foreground.TransferFunction(MKmap,Nmock,N_fgs[i],'Cross',kbins,k,TFfile,mockfilepath_HI,mockfilepath_g,W_HI,w_HI_rg,W01_HI_rg,W01_g_rg,W01_g_rg,ra,dec,nu,wproj,dims0_rg,Np,window,compensate,interlace,taper_HI,taper_g,LoadTF,TF2D=True,kperpbins=kperpbins,kparabins=kparabins)
+exit()
+
+plt.plot(k,norm*pkmod,color='black',ls='--',label=r'Model [$\Omega_{\rm HI}b_{\rm HI} = %s \times 10^{-3}]$'%np.round(OmegaHI*b_HI*1e3,2))
 if norm[0]==1.0: plt.loglog()
 plt.legend(fontsize=12,loc='upper left',bbox_to_anchor=[1,1])
 #plt.title('Null Test (shuffled GAMA redshifts) MeerKAT 2021 x GAMA (no TF)')
@@ -251,34 +282,3 @@ plt.ylabel(r'$k_\parallel [h\,{\rm Mpc}^{-1}]$')
 plt.title(r'Cross ($N_{\rm fg}=%s$) '%N_fgs[-1])
 plt.show()
 exit()
-
-
-
-
-
-### Calculate TF:
-Nmock = 10
-N_fg = N_fgs[-1]
-TFfile = 'TFdata/Nfgs%s.npy'%N_fg
-LoadTF = False
-T_i,T_nosub_i,k = foreground.TransferFunction(MKmap,Nmock,TFfile,N_fg,LoadTF=LoadTF,corrtype='Cross',Pmod=Pmod,dims=dims,kbins=kbins,w_HI=w_HI,W_HI=W_HI,w_g=w_g,W_g=W_g,taper=window,regrid=True,ndim=ndim,W_regridfoot=W_regridfoot,b_HI=b_HI,b_g=b_g,f=f,Tbar=Tbar,Ngal=Ngal,ra=ra_map,dec=dec_map,nu=nu)
-
-print(np.shape(T_i))
-print(np.shape(k))
-
-k = k[0]
-for i in range(Nmock):
-    plt.plot(k,T_i[i],lw=0.8,color='black')
-plt.plot(k,np.mean(T_i,0))
-plt.figure()
-
-Pk_X_TF = Pk_X/np.mean(T_i,0)
-plt.errorbar(k,norm*Pk_X_TF,norm*sig_err,label=r'$N_{\rm fg}=%s$'%N_fg,ls='none',marker='o')
-plt.plot(k,norm*pkmod,color='black',ls='--',label=r'Model [$\Omega_{\rm HI}b_{\rm HI} = %s \times 10^{-3}]$'%np.round(OmegaHI*b_HI*1e3,2))
-if norm[0]==1.0: plt.loglog()
-plt.legend(fontsize=12,loc='upper left',bbox_to_anchor=[1,1])
-plt.xlabel(r'$k\,[h\,{\rm Mpc}^{-1}]$')
-if norm[0]==1.0: plt.ylabel(r'$P_{\rm g,HI}(k)\,[{\rm mK}\,h^{-3}{\rm Mpc}^{3}]$')
-else: plt.ylabel(r'$k^2\,P_{\rm g,HI}(k)\,[{\rm mK}\,h^{-1}{\rm Mpc}]$')
-plt.axhline(0,lw=0.8,color='black')
-plt.show()

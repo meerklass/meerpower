@@ -24,7 +24,7 @@ def ProgressBar(i,N,header=None):
     sys.stdout.flush()
     if i==(N-1): print('\n')
 
-def Map(map,W=None,ra=None,dec=None,map_ra=None,map_dec=None,wproj=None,title=None,Gal=False,cbar_label=None,ZeroCentre=False,vmin=None,vmax=None,cmap='magma'):
+def Map(map,W=None,ra=None,dec=None,map_ra=None,map_dec=None,wproj=None,title=None,Gal=False,cbar_label=None,cbarshrink=1,ZeroCentre=False,vmin=None,vmax=None,cmap='magma'):
     plt.figure()
     if map_ra is not None:
         plt.subplot(projection=wproj)
@@ -65,7 +65,7 @@ def Map(map,W=None,ra=None,dec=None,map_ra=None,map_dec=None,wproj=None,title=No
             plt.xlabel('R.A [deg]',fontsize=18)
             plt.ylabel('Dec. [deg]',fontsize=18)
     if vmax is not None or vmin is not None: plt.clim(vmin,vmax)
-    cbar = plt.colorbar(orientation='horizontal')
+    cbar = plt.colorbar(orientation='horizontal',shrink=cbarshrink)
     if cbar_label is None:
         if Gal==False: cbar.set_label('mK')
     else: cbar.set_label(cbar_label)
