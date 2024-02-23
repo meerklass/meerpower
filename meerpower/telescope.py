@@ -27,11 +27,13 @@ def P_noise(A_sky,theta_FWHM,t_tot,N_dish,nu,lz,T_sys=None,deltav=1,epsilon=1,hi
         if verbose==True: print('\nCalculated System Temp [K]: %s'%np.round(np.min(T_sys)/1e3,2),'< T_sys < %s'%np.round(np.max(T_sys)/1e3,2) )
     else: T_sys = np.repeat(T_sys,len(nu)) # For freq independendent given T_sys
     deltav = deltav * 1e6 # Convert MHz to Hz
-    t_tot = t_tot * 60 * 60 # Convert observing hours to seconds
-    pix_size = theta_FWHM / 3 # [deg] based on MeerKAT pilot survey approach
-    A_p = pix_size**2 # Area covered in each pointing (related to beam size - equation formed by Steve)
-    N_p = A_sky / A_p # Number of pointings
-    t_p = N_dish * t_tot / N_p  # time per pointing
+    if hitmap is None:
+        t_tot = t_tot * 60 * 60 # Convert observing hours to seconds
+        pix_size = theta_FWHM / 3 # [deg] based on MeerKAT pilot survey approach
+        A_p = pix_size**2 # Area covered in each pointing (related to beam size - equation formed by Steve)
+        N_p = A_sky / A_p # Number of pointings
+        t_p = N_dish * t_tot / N_p  # time per pointing
+    else: t_p = hitmap * 2 # assume each pointing is 2 seconds
     sigma_N = T_sys / (epsilon * np.sqrt(2 * deltav * t_p) ) # Santos+15 eq 5.1
     if return_sigma_N==True: return sigma_N
     nchannels = (np.max(nu) - np.min(nu))*1e6 / deltav # Effective number of channels given freq resolution
@@ -45,18 +47,27 @@ def P_noise(A_sky,theta_FWHM,t_tot,N_dish,nu,lz,T_sys=None,deltav=1,epsilon=1,hi
         P_N[i] = V_cell * sigma_N[i]**2
     return P_N
 
-def gen_noise_map(hitmap,W,nu,T_sys,dims):
+def gen_noise_map(hitmap,W,nu,T_sys=None):
     ''' Based on the counts/hitmap of data, this will generate the expected thermal noise
     Using eq5.1 in https://arxiv.org/pdf/1501.03989.pdf
     '''
-    lx,ly,lz,nx,ny,nz = dims
+    if T_sys is None: # Calculate based on SKA red book eq1: https://arxiv.org/pdf/1811.02743.pdf
+        Tspl = 3e3 #mK
+        TCMB = 2.73e3 #mk
+        T_sys = np.zeros(len(nu))
+        for i in range(len(nu)):
+            Tgal = 25e3*(408/nu[i])**2.75
+            #Trx = 15e3 + 30e3*(nu[i]/1e3 - 0.75)**2 # From Red Book
+            Trx = 7.5e3 + 10e3*(nu[i]/1e3 - 0.75)**2 # Amended from above to better fit Wang+20 MK Pilot Survey
+            T_sys[i] = Trx + Tspl + TCMB + Tgal
+    nx,ny,nz = np.shape(W)
     deltav = nu[1] - nu[0]
     deltav *= 1e6 # Convert MHz to Hz
     t_p = hitmap * 2 # time per pointing [secs] based on MeerKAT 2 seconds per time stamp
     sigma_N = np.zeros((nx,ny,nz))
-    sigma_N[W==1] = T_sys / np.sqrt( 2 * deltav * t_p[W==1])
+    sigma_N = T_sys / np.sqrt( 2 * deltav * t_p)
     noise = np.random.normal(0,sigma_N,(nx,ny,nz))
-    noise[hitmap<1] = 0
+    noise[W==0] = 0
     return noise
 
 def getbeampars(D_dish,nu,gamma=None,verbose=False):

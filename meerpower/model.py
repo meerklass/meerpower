@@ -2,7 +2,7 @@ import numpy as np
 import scipy
 from scipy.interpolate import interp1d
 import power
-#import HItools
+import HItools
 import grid
 import plot
 import matplotlib.pyplot as plt
@@ -62,7 +62,7 @@ def PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1
     if len(dims)==9: lx,ly,lz,nx,ny,nz,x0,y0,z0 = dims
     kspec[kspec==0] = 1 # avoid Pmod-model interpolation for k=0
     # Collect damping terms from beam/FG/channels/heapy pixelisation:
-    if Damp is None: Damp = B_beam(muspec,kspec,R_beam1)*B_beam(muspec,kspec,R_beam2)*B_chan(muspec,kspec,s_para)**2*B_pix(muspec,kspec,s_pix)**2*B_ra(dims,s_pix_ra=0)**2*B_dec(dims,s_pix_dec=0)**2*B_ang(muspec,kspec,pixwin)**2
+    if Damp is None: Damp = B_beam(muspec,kspec,R_beam1)*B_beam(muspec,kspec,R_beam2)*B_chan(muspec,kspec,s_para)**2*B_pix(muspec,kspec,s_pix=s_pix)**2*B_ra(dims,s_pix_ra=0)**2*B_dec(dims,s_pix_dec=0)**2*B_ang(muspec,kspec,pixwin)**2
     if reGriddamp==True: # pixelised damping from binning sky particles onto Fouried grid
         s_pix_grid = np.mean([lx/nx,ly/ny,ly/ny])
         B_pix_grid = np.sin(kspec*s_pix_grid/2)/(kspec*s_pix_grid/2)
@@ -310,16 +310,19 @@ def ChiSquare(x_obs,x_mod,x_err,dof=None):
 ########################################################################
 from scipy.optimize import curve_fit
 
-def LSqFitPkAmplitude(Pk,err,Pmod,zeff_,dims,kbins,corrtype='HIauto',kmin=None,kmax=None,b_g=1,f=0,sig_v=0,R_beam1=0,R_beam2=0,w1=None,w2=None,W1=None,W2=None):
+def LSqFitPkAmplitude(Pk,err,Pmod,zeff_,dims_rg,kbins,corrtype='HIauto',P_N_=0,kmin=None,kmax=None,b2=1,f=0,sig_v=0,R_beam1=0,R_beam2=0,w1=None,w2=None,W1=None,W2=None,s_pix=None,s_para=None):
     ### Least-squares fit of power, single factor scaling power spectrum amplitude
     ### default assumes b_HI=1 and r=1, so fitting joint Omega_HI b_HI r parameter
     ### if fitting auto-HI - leave b_g=1 and amplitude fit is Omega_HI^2 b_HI^2
     # corrtype: type of correlation to compute, options are:
     #   - corrtype='HIauto': (default) for HI auto-correlation of temp fluctuation field dT_HI = T_HI - <T_HI>
     #   - corrtype='Cross': for HI-galaxy cross-correlation <dT_HI,n_g>
-    global pkmod; global zeff; global kcut
-    zeff = zeff_
-    pkmod,k,nmodes = PkMod(Pmod,dims,kbins,b2=b_g,f=f,sig_v=sig_v,R_beam1=R_beam1,R_beam2=R_beam2,w1=w1,w2=w2,W1=W1,W2=W2,interpkbins=True,MatterRSDs=True)
+
+    global pkmod; global zeff; global P_N; global kcut
+    zeff = zeff_; P_N = P_N_
+
+    pkmod,k = PkMod(Pmod,dims_rg,kbins,b1=1,b2=b2,f=f,sig_v=sig_v,Tbar1=1,Tbar2=1,r=1,R_beam1=R_beam1,R_beam2=R_beam2,w1=w1,w2=w2,W1=W1,W2=W2,s_pix=s_pix,s_para=s_para,interpkbins=True,MatterRSDs=False,gridinterp=True)[0:2]
+    #pkmod,k,nmodes = PkMod(Pmod,dims_rg,kbins,b2=b2,f=f,sig_v=sig_v,R_beam1=R_beam1,R_beam2=R_beam2,w1=w1,w2=w2,W1=W1,W2=W2,interpkbins=True,MatterRSDs=True)
     # Implement any k-cuts:
     if kmin is None: kmin = kbins[0]
     if kmax is None: kmax = kbins[-1]
@@ -333,7 +336,7 @@ def PkAutoAmp(k,OmHIbHI):
     b_HI = 1
     OmegaHI = OmHIbHI/b_HI
     Tbar = HItools.Tbar(zeff,OmegaHI)
-    return Tbar**2*b_HI**2*pkmod[kcut]
+    return Tbar**2*b_HI**2*pkmod[kcut] + P_N[kcut]
 def PkCrossAmp(k,OmHIbHI):
     b_HI = 1
     OmegaHI = OmHIbHI/b_HI

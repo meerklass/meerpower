@@ -65,7 +65,7 @@ def Map(map,W=None,ra=None,dec=None,map_ra=None,map_dec=None,wproj=None,title=No
             plt.xlabel('R.A [deg]',fontsize=18)
             plt.ylabel('Dec. [deg]',fontsize=18)
     if vmax is not None or vmin is not None: plt.clim(vmin,vmax)
-    cbar = plt.colorbar(orientation='horizontal',shrink=cbarshrink)
+    cbar = plt.colorbar(orientation='horizontal',shrink=cbarshrink,pad=0.2)
     if cbar_label is None:
         if Gal==False: cbar.set_label('mK')
     else: cbar.set_label(cbar_label)

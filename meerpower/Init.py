@@ -54,6 +54,8 @@ def subsetmap(level5path,dish_indx=None,scan_indx=None,verbose=False,output_path
                 filename = level5path + scan[n]+'_m0'+dish[m]+'_Sum_Tsky_xy_p0.3d.fits'
                 if os.path.isfile(filename) is True: count+=1 # check file exists, if so, count
         print('\n' + str(int(count)) + ' maps in subset')
+    if count==0:
+        return map_ave,w,W,counts_sum
     map_sum,counts_sum = None,None
     i = 0
     for n in scan_indx:

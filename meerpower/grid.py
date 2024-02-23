@@ -218,6 +218,50 @@ def transform(delta,dims0,dims0_new):
     delta_rg[counts!=0] /= counts[counts!=0]
     return delta_rg
 
+def ParticleSampling(delta,dims_0,dims_1,Np=1,sample_ingrid=True):
+    '''Use for going from Cartesian grid (dims_0) to different size Cartesian grid (dims_1)'''
+    '''MORE GENERIC VERSION OF transform() - allows for increased resolution by changing sample_ingrid'''
+    '''Create particles that lie in centre of cells and then randomly generate additional
+    satellite particles kicked by random half-cell distance away from cell centre'''
+    # sample_ingrid: True (default) will sample Np particles per cell of input grid
+    #                False will sample Np particles per cell over output grid (with _rg index)
+    lx,ly,lz,nx,ny,nz,x0,y0,z0 = dims_0
+    if sample_ingrid==False: lx,ly,lz,nx_rg,ny_rg,nz_rg,x0,y0,z0 = dims_1
+    xbins,ybins,zbins = np.linspace(x0,x0+lx,nx+1),np.linspace(y0,y0+ly,ny+1),np.linspace(z0,z0+lz,nz+1)
+    if sample_ingrid==False: xbins_rg,ybins_rg,zbins_rg = np.linspace(x0,x0+lx,nx_rg+1),np.linspace(y0,y0+ly,ny_rg+1),np.linspace(z0,z0+lz,nz_rg+1)
+    # First create particles at cell centres:
+    if sample_ingrid==True:
+        xp0,yp0,zp0 = (xbins[1:]+xbins[:-1])/2,(ybins[1:]+ybins[:-1])/2,(zbins[1:]+zbins[:-1])/2 #centre of bins
+        xp0,yp0,zp0 = np.tile(xp0[:,np.newaxis,np.newaxis],(1,ny,nz)),np.tile(yp0[np.newaxis,:,np.newaxis],(nx,1,nz)),np.tile(zp0[np.newaxis,np.newaxis,:],(nx,ny,1))
+    if sample_ingrid==False:
+        xp0,yp0,zp0 = (xbins_rg[1:]+xbins_rg[:-1])/2,(ybins_rg[1:]+ybins_rg[:-1])/2,(zbins_rg[1:]+zbins_rg[:-1])/2 #centre of bins
+        xp0,yp0,zp0 = np.tile(xp0[:,np.newaxis,np.newaxis],(1,ny_rg,nz_rg)),np.tile(yp0[np.newaxis,:,np.newaxis],(nx_rg,1,nz_rg)),np.tile(zp0[np.newaxis,np.newaxis,:],(nx_rg,ny_rg,1))
+    xp0,yp0,zp0 = np.ravel(xp0),np.ravel(yp0),np.ravel(zp0)
+    if sample_ingrid==True: Hx,Hy,Hz = lx/nx,ly/ny,lz/nz
+    if sample_ingrid==False: Hx,Hy,Hz = lx/nx_rg,ly/ny_rg,lz/nz_rg
+    xp,yp,zp = np.array([]),np.array([]),np.array([])
+    if sample_ingrid==True: loop_p = int(Np-1) # chose to include particles at voxel centre
+    if sample_ingrid==False: loop_p = int(Np) # don't include particles at voxel centre, thus need an extra random
+    for i in range(loop_p):
+        # Satellite xp_s particles uniformly random 0<x<H/2 from cell centred particels xp0:
+        xp = np.append(xp,xp0 + np.random.uniform(-Hx/2,Hx/2,np.shape(xp0)))
+        yp = np.append(yp,yp0 + np.random.uniform(-Hy/2,Hy/2,np.shape(yp0)))
+        zp = np.append(zp,zp0 + np.random.uniform(-Hz/2,Hz/2,np.shape(zp0)))
+    if sample_ingrid==True: # append particle at voxel centre:
+        xp = np.append(xp0,xp) # include cell centre particles
+        yp = np.append(yp0,yp) # include cell centre particles
+        zp = np.append(zp0,zp) # include cell centre particles
+    ixbin = np.digitize(xp,xbins)-1
+    iybin = np.digitize(yp,ybins)-1
+    izbin = np.digitize(zp,zbins)-1
+    cellvals = delta[ixbin,iybin,izbin] # cell values associated with each particle
+    ### Filter out particles from empty pixels:
+    xp = xp[cellvals!=0]
+    yp = yp[cellvals!=0]
+    zp = zp[cellvals!=0]
+    cellvals = cellvals[cellvals!=0]
+    return xp,yp,zp,cellvals
+
 def SkyPixelParticles(ra,dec,nu,wproj,map=None,W=None,Np=1):
     '''Create particles that lie in centre of ra,dec,nu cells, then randomly generate
     additional particles kicked by random half-pixel distances away from pixel centre'''
