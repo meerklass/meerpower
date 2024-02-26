@@ -16,7 +16,7 @@ Compatible anaconda environment can be created on ilifu by first adding anaconda
 Then create a virtual environment with the required dependencies by following the below. This currently uses *gridimp* environment (https://github.com/stevecunnington/gridimp) <br /> - **Note:** this may take some time ~5-10 minutes
 
 ```
-conda env create -f environment.yml # [previously environment.yml]
+conda env create -f environment_gridimp.yml # [previously environment.yml]
 conda activate gridimp # [previously meerpower_env]
 
 # for optional jupyter support:
