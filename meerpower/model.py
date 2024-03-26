@@ -99,7 +99,7 @@ def theta_n(nxi,nyi,nzi):
     if (nxi + nyi + nzi) % 2 == 0: return 1 # even
     else: return 0
 
-def PkMod(Pmod,dims,kbins,b1=1,b2=1,f=0,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,sig_N=0,w1=None,w2=None,W1=None,W2=None,doMultipole=False,Pk2D=False,kperpbins=None,kparabins=None,MatterRSDs=False,interpkbins=False,lwin=None,pixwin=None,s_pix=0,s_pix_ra=0,s_pix_dec=0,s_para=0,Damp=None,reGriddamp=False,gridinterp=False):
+def PkMod(Pmod,dims,kbins,b1=1,b2=1,f=0,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,sig_N=0,w1=None,w2=None,W1=None,W2=None,kcuts=None,doMultipole=False,Pk2D=False,kperpbins=None,kparabins=None,MatterRSDs=False,interpkbins=False,lwin=None,pixwin=None,s_pix=0,s_pix_ra=0,s_pix_dec=0,s_para=0,Damp=None,reGriddamp=False,gridinterp=False):
     ### r is cross-correlation coeficient if doing a cross-correlation, set all _1 and _2 parameters
     ###  equal if doing an auto correlation
     #if len(dims)==6: lx,ly,lz,nx,ny,nz = dims
@@ -107,56 +107,9 @@ def PkMod(Pmod,dims,kbins,b1=1,b2=1,f=0,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_
     if interpkbins==True: # If True, interpolate model Pk over same grid and bin using same pipeline as data
         kspec,muspec,indep = power.getkspec(dims,FullPk=True)
         pkspecmod = PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,MatterRSDs,lwin,pixwin,s_pix,s_pix_ra,s_pix_dec,s_para,Damp=Damp,reGriddamp=reGriddamp,gridinterp=gridinterp)
-
-        #pkspecmod /= power.W(dims,p=2,FullPk=True)**2
-        #pkspecmod = power.W(dims,p=2,FullPk=True,field=pkspecmod)
-        '''
-        lx,ly,lz,nx,ny,nz = dims
-        nyqx,nyqy,nyqz = nx*np.pi/lx,ny*np.pi/ly,nz*np.pi/lz
-        kx = 2*np.pi*np.fft.fftfreq(nx,d=lx/nx)[:,np.newaxis,np.newaxis]
-        ky = 2*np.pi*np.fft.fftfreq(ny,d=ly/ny)[np.newaxis,:,np.newaxis]
-        kz = 2*np.pi*np.fft.fftfreq(nz,d=lz/nz)[np.newaxis,np.newaxis,:]
-        pkspecmod = 0
-        shiftarray = np.linspace(-1,1,3) # integer vectors by which to nudge the nyquist freq.
-        for ix in shiftarray:
-            for iy in shiftarray:
-                for iz in shiftarray:
-                    kx1 = kx + 2*nyqx*ix
-                    ky1 = ky + 2*nyqy*iy
-                    kz1 = kz + 2*nyqz*iz
-                    kspec1 = np.sqrt(kx1**2 + ky1**2 + kz1**2)
-                    kspec1[0,0,0] = 1 # to avoid divide by zero error
-                    muspec1 = np.absolute(kz1)/kspec1
-                    muspec1[0,0,0] = 1 # divide by k=0, means mu->1
-                    kspec1[0,0,0] = 0 # reset
-
-                    p = 4
-                    qx1,qy1,qz1 = (np.pi*kx1)/(2*nyqx),(np.pi*ky1)/(2*nyqy),(np.pi*kz1)/(2*nyqz)
-                    wx = np.divide(np.sin(qx1),qx1,out=np.ones_like(qx1),where=qx1!=0.)
-                    wy = np.divide(np.sin(qy1),qy1,out=np.ones_like(qy1),where=qy1!=0.)
-                    wz = np.divide(np.sin(qz1),qz1,out=np.ones_like(qz1),where=qz1!=0.)
-                    W = (wx*wy*wz)**p
-                    #if ix==0 and iy==0 and iz==0: pkspecmod += PkModSpec(Pmod,dims,kspec1,muspec1,b1,b2,f,sig_v,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,MatterRSDs,lwin,pixwin,s_pix,s_pix_ra,s_pix_dec,s_para,Damp=Damp,reGriddamp=reGriddamp,gridinterp=gridinterp)
-                    #else: pkspecmod += W**2*PkModSpec(Pmod,dims,kspec1,muspec1,b1,b2,f,sig_v,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,MatterRSDs,lwin,pixwin,s_pix,s_pix_ra,s_pix_dec,s_para,Damp=Damp,reGriddamp=reGriddamp,gridinterp=gridinterp)
-
-                    pkspecmod += theta_n(ix,iy,iz) * W**2*PkModSpec(Pmod,dims,kspec1,muspec1,b1,b2,f,sig_v,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,MatterRSDs,lwin,pixwin,s_pix,s_pix_ra,s_pix_dec,s_para,Damp=Damp,reGriddamp=reGriddamp,gridinterp=gridinterp)
-        '''
-
-
-        '''
-        ### Plot damping terms(k) - make sure each input R_beam,s_para etc. is not zero
-        Fbeam,k,nmodes = power.binpk(B_beam(muspec,kspec,R_beam1)**2,dims[:6],kbins,FullPk=True,doindep=False)
-        Fchan,k,nmodes = power.binpk(B_chan(muspec,kspec,s_para)**2,dims[:6],kbins,FullPk=True,doindep=False)
-        Fpix,k,nmodes = power.binpk(B_pix(muspec,kspec,s_pix)**2,dims[:6],kbins,FullPk=True,doindep=False)
-        plt.plot(k,Fbeam)
-        plt.plot(k,Fchan)
-        plt.plot(k,Fpix)
-        plt.show()
-        exit()
-        '''
         if doMultipole==False:
             if Pk2D==False:
-                pkmod,k,nmodes = power.binpk(pkspecmod,dims[:6],kbins,FullPk=True,doindep=False)
+                pkmod,k,nmodes = power.binpk(pkspecmod,dims[:6],kbins,kcuts,FullPk=True,doindep=False)
                 return pkmod,k,nmodes
             if Pk2D==True:
                 pk2d,nmodes = power.bin2DPk(pkspecmod,dims[:6],kperpbins,kparabins,FullPk=True)
@@ -378,18 +331,21 @@ def lnprob(theta, k, Pk, Pkerr):
         return -np.inf
     return lp + lnlike(theta,k,Pk,Pkerr)
 
-def runMCMC(k,Pk,Pkerr,Omega_HI_fid,b_HI_fid,zeff_,Pmod_,b_g_,f_,sig_v_,r_HIg_,R_beam_,dims_,kbins_,w_g_=None,W_g_=None,w_HI_=None,W_HI_=None,nwalkers=200,niter=500,ndim_=2,ContinueBackend=False,backendfile=None):
+def runMCMC(k,Pk,Pkerr,Omega_HI_fid,b_HI_fid,zeff_,Pmod_,f_,sig_v_,R_beam_,dims_rg_,kbins_,r_HIg_=None,b_g_=None,w1_=None,W1_=None,w2_=None,W2_=None,nwalkers=200,niter=500,ndim_=2,ContinueBackend=False,backendfile=None):
     '''
     Main run function for MCMC
     '''
     import emcee
-    global zeff; global Pmod; global b_g; global f; global sig_v; global r_HIg; global R_beam; global dims; global kbins; global w_g; global W_g; global w_HI; global W_HI; global ndim
-    zeff=zeff_; Pmod=Pmod_; b_g=b_g_; f=f_; sig_v=sig_v_; r_HIg=r_HIg_; R_beam=R_beam_; dims=dims_; kbins=kbins_; w_g=w_g_; W_g=W_g_; w_HI=w_HI_; W_HI=W_HI_; ndim=ndim_
+    #global zeff; global Pmod; global b_g; global f; global sig_v; global r_HIg; global R_beam; global dims; global kbins; global w_g; global W_g; global w_HI; global W_HI; global ndim
+    #zeff=zeff_; Pmod=Pmod_; b_g=b_g_; f=f_; sig_v=sig_v_; r_HIg=r_HIg_; R_beam=R_beam_; dims_rg=dims_rg_; kbins=kbins_; w_g=w_g_; W_g=W_g_; w_HI=w_HI_; W_HI=W_HI_; ndim=ndim_
+    global zeff
 
     if ndim==1:
         # Calculate model with b_HI = Tbar = 1 to use in amplitude fitting:
         global pkmod
-        pkmod = PkMod(Pmod,dims,kbins,1,b_g,f,sig_v,Tbar1=1,Tbar2=1,r=r_HIg,R_beam1=R_beam,R_beam2=0,w1=w_HI,w2=w_g,W1=W_HI,W2=W_g,interpkbins=True,MatterRSDs=True)[0]
+        #pkmod = PkMod(Pmod,dims,kbins,1,b_g,f,sig_v,Tbar1=1,Tbar2=1,r=r_HIg,R_beam1=R_beam,R_beam2=0,w1=w_HI,w2=w_g,W1=W_HI,W2=W_g,interpkbins=True,MatterRSDs=True)[0]
+        pkmod = PkMod(Pmod,dims_rg,kbins,b1=1,b2=b2,f=f,sig_v=sig_v,Tbar1=1,Tbar2=1,r=1,R_beam1=R_beam1,R_beam2=R_beam2,w1=w1,w2=w2,W1=W1,W2=W2,s_pix=s_pix,s_para=s_para,interpkbins=True,MatterRSDs=False,gridinterp=True)[0]
+
         OmHI_p0 = np.random.normal(Omega_HI_fid,scale=0.1*Omega_HI_fid,size=nwalkers)
         p0 = np.swapaxes(np.array([OmHI_p0]),0,1)
     if ndim==2: # Fit Omega_HI and b_HI independently

@@ -5,6 +5,7 @@ import cosmo
 import HItools
 from scipy.ndimage import gaussian_filter
 from scipy.ndimage import gaussian_filter1d
+import matplotlib.pyplot as plt
 
 def P_noise(A_sky,theta_FWHM,t_tot,N_dish,nu,lz,T_sys=None,deltav=1,epsilon=1,hitmap=None,return_sigma_N=False,verbose=False):
     ### Return a scale invariant level for the thermal noise power spectrum
@@ -80,23 +81,91 @@ def getbeampars(D_dish,nu,gamma=None,verbose=False):
     if verbose==True: print('\nTelescope Params: Dish size =',D_dish,'m, R_beam =',np.round(R_beam,1),'Mpc/h, theta_FWHM =',np.round(theta_FWHM,2),'deg')
     return theta_FWHM,R_beam
 
-def ConvolveMap(map,theta_FWHM,ra,dec,mode='wrap'):
+def ConvolveMap(map,theta_FWHM,ra,dec,mode='same'):
     '''Gaussian smoothing at map level to be used on sims for replicating angular
     beam perpendicular to line-of-sight'''
-    # Uses 1d gaussian smoothing along RA/Dec directions, allowing for different
-    #  pixel sizes along both directions. 2 1d smoothings along axes=0,1 equivalent
-    #  to a combined 2D simultaneous smoothing of same sigma
+    nx,ny = np.shape(ra)
+    if np.max(np.abs(np.diff(ra,axis=0)))>300: # there are discontinuous coords with [..359,360,1..]
+        ra_discont = True
+        ra[ra>180] = ra[ra>180] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
+    else: ra_discont = False
+    # Centralise coordinates for beam profile (use central pixel index to find coordinate of mid pixel):
+    if nx%2==0: xmidindx = [int(nx/2-0.5),int(nx/2+0.5)]
+    else: xmidindx = int(nx/2)
+    if ny%2==0: ymidindx = [int(ny/2-0.5),int(ny/2+0.5)]
+    else: ymidindx = int(ny/2)
+    r0 = np.median(ra[xmidindx,ymidindx])
+    d0 = np.median(dec[xmidindx,ymidindx])
+    r = ra - r0
+    d = dec - d0
+    if ra_discont==True:
+        ra[ra<0] = ra[ra<0] + 360 # Reset negative coordinates to 359,360,1 convention
     sig_beam = theta_FWHM/(2*np.sqrt(2*np.log(2)))
-    ra[ra>180] = ra[ra>180] - 360
-    dra = np.mean(np.diff(ra,axis=0)) # pixel size [deg] in RA direction
-    ddec = np.mean(np.diff(dec,axis=1)) # pixel size [deg] in Dec direction
-    nnu = np.shape(map)[2]
     if np.isscalar(theta_FWHM): sig_beam = np.repeat(sig_beam,nnu) # Freq-indep. beam
-    map_smooth = np.zeros(np.shape(map))
-    for i in range(nnu):
-        map_smooth[:,:,i] = gaussian_filter1d(map[:,:,i], sigma=sig_beam[i]/dra, axis=0, mode=mode)
-        map_smooth[:,:,i] = gaussian_filter1d(map_smooth[:,:,i], sigma=sig_beam[i]/ddec, axis=1, mode=mode)
+    map_smooth = np.zeros(np.shape(map)) # New variance for smoothed map
+    for j in range(np.shape(map)[2]):
+        #Create Gaussian kernenls to convole with:
+        gaussian = np.exp(-0.5 * ((r/sig_beam[j])**2 + (d/sig_beam[j])**2))
+        gaussian = gaussian/np.sum(gaussian) #normalise gaussian so that all pixels sum to 1
+        map_smooth[:,:,j] = signal.fftconvolve(map[:,:,j], gaussian, mode=mode)
     return map_smooth
+
+def weighted_reconvolve(dT,w,W,ra,dec,nu,D_dish,gamma=1):
+    #print('\nTODO: resmoothing not currently accounting for different pixels sizes across map')
+    '''
+    Steve's original Gaussian smoothing function rewritten by Paula for weighted
+    resmoothing to common resolution purpose. Using Mario's equations in MeerKLASS
+    notes overleaf.
+    ____
+    Smooth entire data cube one slice at a time, using weights
+    INPUTS:
+    dT: field to be smoothed, in format [nx,ny,nz] where nz is frequency direction
+    w: weights for resmoothing
+    W: binary survey window function
+    gamma: padding variable to increase your beam size
+    '''
+    nx,ny = np.shape(ra)
+    if np.max(np.abs(np.diff(ra,axis=0)))>300: # there are discontinuous coords with [..359,360,1..]
+        ra_discont = True
+        ra[ra>180] = ra[ra>180] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
+    else: ra_discont = False
+    # Centralise coordinates for beam profile (use central pixel index to find coordinate of mid pixel):
+    if nx%2==0: xmidindx = [int(nx/2-0.5),int(nx/2+0.5)]
+    else: xmidindx = int(nx/2)
+    if ny%2==0: ymidindx = [int(ny/2-0.5),int(ny/2+0.5)]
+    else: ymidindx = int(ny/2)
+    r0 = np.median(ra[xmidindx,ymidindx])
+    d0 = np.median(dec[xmidindx,ymidindx])
+    r = ra - r0
+    d = dec - d0
+    if ra_discont==True:
+        ra[ra<0] = ra[ra<0] + 360 # Reset negative coordinates to 359,360,1 convention
+    theta_FWHM_max = np.degrees( c / (np.min(nu)*1e6 * D_dish) )
+    sigma_max = theta_FWHM_max/(2*np.sqrt(2*np.log(2)))
+    var = np.zeros(np.shape(dT)) # New variance for smoothed map
+    for j in range(np.shape(dT)[2]):
+        #Create Gaussian kernenls to convole with:
+        theta_FWHM = np.degrees( c / (nu[j]*1e6 * D_dish) )
+        sigma_z = theta_FWHM/(2*np.sqrt(2*np.log(2)))
+        #sig = np.sqrt(sigma_max**2 - sigma_z**2)
+        gammasig = gamma*sigma_max**2 - sigma_z**2
+        gaussian = np.exp( -(r**2 + d**2)/(2*gammasig) )
+        gaussian2 = gaussian**2
+        gaussian = gaussian/np.sum(gaussian) #normalise gaussian so that all pixels sum to 1
+        gaussian2 = gaussian2/np.sum(gaussian2) #normalise gaussian2 so that all pixels sum to 1
+        denom = signal.fftconvolve(w[:,:,j], gaussian, mode='same') # Normalising denominator factor
+        denom[denom==0] = 1e30 # avoid divide by zero error and make zero weight infinitely high
+        dT[:,:,j] = signal.fftconvolve(dT[:,:,j]*w[:,:,j], gaussian, mode='same') / denom
+        var[:,:,j] = signal.fftconvolve(w[:,:,j], gaussian2, mode='same') / denom**2
+    dT[W==0] = 0
+    var[var==0] = 1e30
+    w = 1 / var
+    w[W==0] = 0
+    return dT,w
+
+################################################################################################
+#### BELOW IS LEGACY CODE - NO LONGER NEEDED ? ####################
+################################################################################################
 
 def ConvolveCube(dT,dims,R_beam=None,BeamType='Gaussian',ReConvolve=False,W=None,nu=None,D_dish=None,gamma=1,verbose=False):
     '''

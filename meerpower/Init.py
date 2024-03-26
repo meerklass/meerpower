@@ -261,3 +261,126 @@ def ReadInLevel62021(HI_filename,countsfile,numin=970.95,numax=1075.84,nights=No
 
     if returnmapcoords==True: return dT_MK,w_HI,W_HI,dims,ra,dec,nu,counts_sum,map_ra,map_dec,wproj
     else: return dT_MK,w_HI,W_HI,dims,ra,dec,nu,counts_sum
+
+#import h5py as h5
+import numpy.ma as ma
+from numpy.lib.utils import safe_eval
+
+def ReadInYiChaoMaps(HI_filename,Opt_filename):
+    dT_MK, ax = load_map(HI_filename,map_name='clean_map')
+    nu,ra,dec = ax
+    vmin,vmax = nu[0], nu[-1]
+    noise,ax = load_map(HI_filename,map_name='noise_diag')
+    freqmask = load_map(HI_filename,map_name='mask')
+    w_HI = make_noise_factorizable(noise) # use Yi-Chao's function for defining seperable weights
+    dT_MK,noise = 1e3*dT_MK,1e3*noise # Convert all temp maps from Kelvin to mK
+    W_HI = np.ones(np.shape(dT_MK)) # window for intenisty map to mark dead pixels
+    W_HI[dT_MK==0] = 0
+    '''
+    dT_dirty,ax = load_map(HI_filename,map_name='dirty_map')
+    plottools.PlotMap(dT_MK,W_HI)
+    plottools.PlotMap(dT_dirty,W_HI)
+    plt.show()
+    exit()
+    '''
+    lx,ly,lz = 817.4,268.7,178.5 # Mpc/h [from Yi-Chao draft]
+    nx,ny,nz = np.shape(dT_MK)
+    dims = [lx,ly,lz,nx,ny,nz]
+    delta_g, ax = load_map(Opt_filename,map_name='delta')
+    n_g_exp, ax = load_map(Opt_filename,map_name='separable') # <n_g> Optical selection function - use in weighting
+    n_g = n_g_exp*(delta_g + 1) # convert to n_g for correct input to Steve's Pk estimators
+    #print(np.sum(n_g)) # = 3953.1815530201766
+    # n_g not summing to an exact integer as expected
+    #############################################################################
+    ####### CHECK YI-CHAO'S CALULCATION OF delta_g and W_g due to above #######
+    #############################################################################
+    W_g01 = np.ones(np.shape(n_g_exp)) # Binary window function for galaxies to mark dead pixels
+    W_g01[n_g_exp==0] = 0
+    ### Calculate FKP weigts:
+    W_g = n_g_exp/np.sum(n_g_exp) # normalised window function for FKP weight calculation
+    P0 = 1000
+    nbar = np.sum(n_g)/(lx*ly*lz) # Calculate number density inside survey footprint
+    w_g = 1/(1 + W_g*(nx*ny*nz)*nbar*P0)
+    w_g[W_g01==0] = 0 # zero weight for dead pixels
+    return dT_MK,n_g,w_HI,W_HI,w_g,n_g_exp,W_g01,nbar,dims,ra,dec,nu,freqmask
+
+
+def load_map(data_path, map_name='clean_map'):
+#### Yi-Chao's adapted function for reading his optical map data
+    with h5.File(data_path, 'r') as f:
+        #print(f.keys())
+        _map = f[map_name][:]
+        if map_name=='mask': return _map
+        info = {}
+        for key, value in f[map_name].attrs.items():
+            # Value errors from below safe_eval are caused for different users
+            #   so including both possible working variants.
+            try: info[key] = safe_eval(value)
+            except ValueError:
+                info[key] = safe_eval(value.decode("utf-8"))
+        _l = _map.shape
+        axes = []
+        for ii, ax in enumerate(info['axes']):
+            axes.append( info[ax + '_delta'] * (np.arange(_l[ii]) - _l[ii] // 2)\
+                    + info[ax + '_centre'])
+    _map = np.swapaxes(_map,0,2) # [z,ra,dec] -> [dec,ra,z]
+    _map = np.swapaxes(_map,0,1) # [dec,ra,z] -> [ra,dec,z]
+    return _map, axes
+
+def make_noise_factorizable(noise, weight_prior=1.e3):
+    r"""Convert noise diag such that the factor into a function a
+    frequency times a function of pixel by taking means over the original
+    weights.
+
+    input noise_diag;
+    output weight
+
+    weight_prior used to be 10^-30 before prior applied
+
+    ### SC: Provided by Yi-Chao via his GitHub:
+    https://github.com/meerklass/meerKAT_sim/blob/3ed8ec5ffe11cbcc010a1fdf9f739930ec2138d4/meerKAT_sim/ps/fgrm.py#L259
+    Details of it are discussed in Switzer+13: https://academic.oup.com/mnrasl/article/434/1/L46/1165809
+    """
+
+    ## Swith back axes order to Yi-Chao's convention:
+    noise = np.swapaxes(noise,0,2) # [ra,dec,z] -> [z,dec,ra]
+    noise = np.swapaxes(noise,1,2) # [z,dec,ra] -> [z,ra,dec]
+
+    #noise[noise < weight_prior] = 1.e-30
+    #noise = 1. / noise
+    #noise[noise < 5.e-5] = 0.
+    noise[noise > 1./weight_prior] = 1.e30
+    noise = ma.array(noise)
+    # Get the freqency averaged noise per pixel.  Propagate mask in any
+    # frequency to all frequencies.
+    for noise_index in range(ma.shape(noise)[0]):
+        if np.all(noise[noise_index, ...] > 1.e20):
+            noise[noise_index, ...] = ma.masked
+    noise_fmean = ma.mean(noise, 0)
+    noise_fmean[noise_fmean > 1.e20] = ma.masked
+    # Get the pixel averaged noise in each frequency.
+    noise[noise > 1.e20] = ma.masked
+    noise /= noise_fmean
+    noise_pmean = ma.mean(ma.mean(noise, 1), 1)
+    # Combine.
+    noise = noise_pmean[:, None, None] * noise_fmean[None, :, :]
+    #noise[noise == 0] = np.inf
+    #noise[noise==0] = ma.masked
+    #noise[noise==0] = 1e-30
+
+    #weight = (1 / noise)
+    weight = np.zeros(np.shape(noise))
+    weight[noise!=0] = 1/noise[noise!=0]
+    #weight[noise==1e-30] = 0
+
+    #weight = weight.filled(0)
+    cut_l  = np.percentile(weight, 10)
+    cut_h = np.percentile(weight, 80)
+    weight[weight<cut_l] = cut_l
+    weight[weight>cut_h] = cut_h
+
+    ## Switch back axes order to Steves's convention:
+    weight = np.swapaxes(weight,0,2) # [z,ra,dec] -> [dec,ra,z]
+    weight = np.swapaxes(weight,0,1) # [dec,ra,z] -> [ra,dec,z]
+    #weight = weight.filled(0)
+    return weight

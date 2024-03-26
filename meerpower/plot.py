@@ -105,11 +105,15 @@ def FrequencyCovariance(C,nu,title=None):
 
 def EigenSpectrum(eignumb,eigenval,title=None):
     plt.figure()
-    ### Show eigenvalue spectrum from outputs of PCA clean
     eignumb_cut = 40 # highest eigenvalue to show
-    plt.plot(eignumb,eigenval,'-o')
+    eigenval_min = []
+    if len(np.shape(eigenval))==1: eigenval = [eigenval]
+    ### Show eigenvalue spectrum from outputs of PCA clean
+    for i in range(np.shape(eigenval)[0]):
+        plt.plot(eignumb,eigenval[i],'-o')
+        eigenval_min.append(eigenval[i][eignumb_cut])
     plt.yscale('log')
-    plt.ylim(bottom=eigenval[eignumb_cut])
+    plt.ylim(bottom=np.min(eigenval_min))
     plt.xlim(left=0,right=eignumb_cut)
     plt.xlabel('Eigennumber')
     plt.ylabel('Eigenvalue')
@@ -119,9 +123,13 @@ def Eigenmodes(x,V,Num=6,title=None):
     # Num: number of eigenmodes selected to plot
     chart = 100*Num + 11
     plt.figure(figsize=(7,3*Num))
+    if len(np.shape(V))==2: V = [V]
     for i in range(Num):
         plt.subplot(chart + i)
-        plt.plot(x,V[:,i],label='eigenmode %s'%(i+1))
+        for Vi in range(np.shape(V)[0]):
+            if Vi==0: label='eigenmode %s'%(i+1)
+            else: label = None
+            plt.plot(x,V[Vi][:,i],label=label)
         plt.legend(fontsize=16)
     if title is not None: plt.title(title,fontsize=18)
 

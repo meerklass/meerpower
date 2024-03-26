@@ -6,7 +6,7 @@ import model
 # Estimate the 3D power spectrum of a density field.                   #
 ########################################################################
 
-def Pk(f1,f2,dims,kbins,corrtype='HIauto',w1=None,w2=None,W1=None,W2=None,kperpmin=None,kcuts=None,doMultipole=False,W_alias=None,p=1,doNGPcorrect=False,interlace=False,Pmod=None,Pnoise=0,b1=1,b2=1,f=0,sigv=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,sig_N=0,s_pix=0,s_para=0):
+def Pk(f1,f2,dims,kbins,corrtype='HIauto',w1=None,w2=None,W1=None,W2=None,kcuts=None,doMultipole=False):
     ### *** IF CROSS-CORRELATING: assumes f1 = HI field and f2 = galaxy field ****
     ### if auto-correlating then set f1=f2, norm1=norm2, w1=w2 and W1=W2
     ######################################################################
@@ -24,42 +24,9 @@ def Pk(f1,f2,dims,kbins,corrtype='HIauto',w1=None,w2=None,W1=None,W2=None,kperpm
     #   - for galxies: noise = 'shot' will include shot-noise subtraction
     # kcuts = [kperpmin,kparamin,kperpmax,kparamax]: If given, power spectrum only measured within this scale range
     ######################################################################
-    pkspec = getpkspec(f1,f2,dims,corrtype,w1,w2,W1,W2,W_alias=W_alias,interlace=interlace)
-    #'''
-    if W_alias is not None:
-        if W_alias=='ngp': p = 1
-        if W_alias=='cic': p = 2
-        if W_alias=='tsc': p = 3
-        if W_alias=='pcs': p = 4
-        #W_ = W(dims,p)
-        #pkspec *= W_
-
-        wn = W(dims,p)
-        wn = 1
-
-        #pkspec -= Pnoise / W_field(dims,p)**2
-        #pkspec -= Pnoise*C_1(dims,p) / W_field(dims,p)**2
-        #pkspec -= Pnoise*C_1(dims,p) * wn**2
-        pkspec -= Pnoise*C_1(dims,p)
-        #pkspec -= Pnoise*np.sqrt(C_1(dims,p))
-
-    #'''
-
-    if doNGPcorrect==True:
-        #####################################
-        #### Need to revise this now that shot-noise is being subtracted in getpkspec function
-        #####################################
-        if Pnoise!=0: C1 = C_1(dims,p)
-        C2 = C_2(dims,Pmod,Pnoise,b1,b2,f,sigv,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,s_pix,s_para,p)
-        #######################################
-        ### Does noise need to be included in this?
-        #######################################
-        if Pnoise!=0: pkspec = (pkspec - Pnoise*C1) / C2
-        else: pkspec = pkspec / C2
+    pkspec = getpkspec(f1,f2,dims,corrtype,w1,w2,W1,W2)
     if doMultipole==False:
-
         Pk,k,nmodes = binpk(pkspec,dims,kbins,kcuts)
-
         return Pk,k,nmodes
     if doMultipole==True: # Do multipole decomposition and return Monopole (P0), Quadrupole (P2) and Hexadecapole (P4)
         pk0,pk2,pk4,k,nmodes = binpole(pkspec,dims,kbins)
@@ -74,7 +41,7 @@ def Pk2D(f1,f2,dims,kperpbins,kparabins,corrtype='HIauto',w1=None,w2=None,W1=Non
     Pk2d,k2d,nmodes = binpk2D(pkspec,dims,kperpbins,kparabins)
     return Pk2d,k2d,nmodes
 
-def getpkspec(f1,f2,dims,corrtype='HIauto',w1=None,w2=None,W1=None,W2=None,Ngal=None,W_alias=None,interlace=False):
+def getpkspec(f1,f2,dims,corrtype='HIauto',w1=None,w2=None,W1=None,W2=None,Ngal=None):
     # Obtain full 3D unbinned power spectrum - follows formalism in Blake+10[https://arxiv.org/pdf/1003.5721.pdf] (sec 3.1)
     #  - see Pk function for variable definitions
     if corrtype=='Galauto' or corrtype=='Cross': Ngal = np.sum(f2) # assumes f2 is galaxy field
@@ -91,92 +58,20 @@ def getpkspec(f1,f2,dims,corrtype='HIauto',w1=None,w2=None,W1=None,W2=None,Ngal=
         S = 0 ### DEVELOP THIS ### for thermal noise HI IM subtraction
         F1k = np.fft.rfftn(w1*f1)
         F2k = np.fft.rfftn(w2*f2)
-
-        #W = np.abs(W_field(dims,p=4))
-        #F1k /= W
-        #F2k /= W
-
-
-        if W_alias is not None:
-            if W_alias=='ngp': p = 1
-            if W_alias=='cic': p = 2
-            if W_alias=='tsc': p = 3
-            if W_alias=='pcs': p = 4
-            '''
-            W_ = W_field(dims,p,interlace=False)
-            #W_ = W(dims,p,field=None)
-            F1k /= W_
-            F2k /= W_
-            #F1k = W(dims,p,field=F1k)
-            #F2k = W(dims,p,field=F2k)
-            if interlace==True:
-                #W_ = W_field(dims,p,interlace=True)
-                F1k += F1k/W_
-                F2k += F1k/W_
-                F1k /= 2
-                F2k /= 2
-
-            '''
-            '''
-            nyqx,nyqy,nyqz = nx*np.pi/lx,ny*np.pi/ly,nz*np.pi/lz
-            kx = np.tile(2*np.pi*np.fft.fftfreq(nx,d=lx/nx)[:,np.newaxis,np.newaxis],(1,ny,int(nz/2)+1))
-            ky = np.tile(2*np.pi*np.fft.fftfreq(ny,d=ly/ny)[np.newaxis,:,np.newaxis],(nx,1,int(nz/2)+1))
-            kz = np.tile(2*np.pi*np.fft.fftfreq(nz,d=lz/nz)[:int(nz/2)+1][np.newaxis,np.newaxis,:],(nx,ny,1))
-            qx,qy,qz = (np.pi*kx)/(2*nyqx),(np.pi*ky)/(2*nyqy),(np.pi*kz)/(2*nyqz)
-            nonzermask = (qx!=0) & (qy!=0) & (qz!=0)
-            W = np.ones(np.shape(F1k))
-            W[nonzermask] = ( np.sin(qx[nonzermask])/qx[nonzermask] * np.sin(qy[nonzermask])/qy[nonzermask] * np.sin(qz[nonzermask])/qz[nonzermask] )**p
-            F1k /= W
-            F2k /= W
-
-            shiftarray = np.linspace(-1,1,3) # integer vectors by which to nudge the nyquist freq.
-            for ix in shiftarray:
-                for iy in shiftarray:
-                    for iz in shiftarray:
-                        if ix==0 and iy==0 and iz==0: continue # avoid summing n=0 field twice
-                        kx1 = kx + 2*nyqx*ix
-                        ky1 = ky + 2*nyqy*iy
-                        kz1 = kz + 2*nyqz*iz
-                        qx1,qy1,qz1 = (np.pi*kx1)/(2*nyqx),(np.pi*ky1)/(2*nyqy),(np.pi*kz1)/(2*nyqz)
-                        #nonzermask = (qx1!=0) & (qy1!=0) & (qz1!=0)
-                        #W = np.ones(np.shape(F1k))
-                        #W[nonzermask] = ( np.sin(qx1[nonzermask])/qx1[nonzermask] * np.sin(qy1[nonzermask])/qy1[nonzermask] * np.sin(qz1[nonzermask])/qz1[nonzermask] )**p
-                        #print(len(W[W<1e-5]))
-                        #W[W<1e-5] = 1e-5
-
-                        print(np.min(np.abs(qx1)),np.max(qx1))
-                        print(np.min(np.abs(np.sin(qx1))),np.max(np.sin(qx1)))
-
-
-                        wx = np.divide(np.sin(qx1),qx1,out=np.ones_like(qx1),where=np.abs(qx1)>1e-1)
-                        wy = np.divide(np.sin(qy1),qy1,out=np.ones_like(qy1),where=np.abs(qy1)>1e-1)
-                        wz = np.divide(np.sin(qz1),qz1,out=np.ones_like(qz1),where=np.abs(qz1)>1e-1)
-                        print(np.min(wx),np.max(wx))
-                        print(np.min(wy),np.max(wy))
-                        print(np.min(wz),np.max(wz))
-                        print('------')
-                        #exit()
-
-                        W = (wx*wy*wz)**p
-
-                        F1k += F1k/W
-                        F2k += F2k/W
-                        print(np.min(W),np.max(W))
-            print(F1k)
-            print(F2k)
-            #exit()
-            '''
-
         pkspec = np.real( F1k * np.conj(F2k) )
         return Vcell / np.sum(w1*w2) * (pkspec-S) # Normalisation with windows is NOT needed
     if corrtype=='Galauto':
+
         S = Ngal * np.sum(w1**2*W1) # shot-noise term
+        #S = Ngal * np.sum(W1) # shot-noise term
+
         Wk1 = np.fft.rfftn(w1*W1)
         F1k = np.fft.rfftn(w1*f1) - Ngal*Wk1
         Wk2 = np.fft.rfftn(w2*W2)
         F2k = np.fft.rfftn(w2*f2) - Ngal*Wk2
         pkspec = np.real( F1k * np.conj(F2k) )
         return Vcell / np.sum(w1*w2*W1*W2) * (pkspec-S) * 1/(Ngal**2) # Normalisation with windows is needed
+
     if corrtype=='Cross':
         S = 0 # noise drops out in cross-correlation
         F1k = np.fft.rfftn(w1*f1)
@@ -194,7 +89,8 @@ def binpk(pkspec,dims,kbins,kcuts=None,FullPk=False,doindep=True):
     lx,ly,lz,nx,ny,nz = dims
     kspec,muspec,indep = getkspec(dims,FullPk)
     if kcuts is not None: # Remove kspec (by setting to -1) to exclude from bin average:
-        kperp,kpara,indep_perp,indep_para = getkspec2D(dims,FullPk)
+        if doindep==True: kperp,kpara,indep_perp,indep_para = getkspec2D(dims,FullPk=FullPk,doindep=doindep)
+        if doindep==False: kperp,kpara = getkspec2D(dims,FullPk=FullPk,doindep=doindep)
         kperpcutmin,kparacutmin,kperpcutmax,kparacutmax = kcuts
         if kperpcutmin is not None: kspec[kperp<kperpcutmin] = -1
         if kperpcutmax is not None: kspec[kperp>kperpcutmax] = -1
@@ -213,6 +109,7 @@ def binpk(pkspec,dims,kbins,kcuts=None,FullPk=False,doindep=True):
             pk[ik] = np.nanmean(pkspec[ikbin==ik+1])
     return pk,k,nmodes
 
+'''
 def binpk_int(pkspec,dims,kbins,kcuts=None,FullPk=False,doindep=True,interlace=False):
     #### Bin 3D power spectrum in angle-averaged bins
     lx,ly,lz,nx,ny,nz = dims
@@ -276,6 +173,7 @@ def binpk_int(pkspec,dims,kbins,kcuts=None,FullPk=False,doindep=True,interlace=F
             pk[ik] = np.mean( np.append( pkspec[ikbin==ik+1], pk2[ik] ) )
 
     return pk,k,nmodes
+'''
 
 def binpk2D(pkspec,dims,kperpbins,kparabins,FullPk=False,doindep=True):
     kperpspec,kparaspec,indep_perp,indep_para = getkspec2D(dims,FullPk)
@@ -327,7 +225,7 @@ def getkspec(dims,FullPk=False,decomp=False):
     kspec[0,0,0] = 0 # reset
     return kspec,muspec,indep
 
-def getkspec2D(dims,do2D=False,FullPk=False):
+def getkspec2D(dims,do2D=False,FullPk=False,doindep=True):
     '''
     Obtain two 3D arrays specifying kperp and kpara values at every point in
     pkspec array - if do2D==True - return 2D arrays of kperp,kpara
@@ -346,23 +244,23 @@ def getkspec2D(dims,do2D=False,FullPk=False):
         kpara = np.swapaxes(kpara,0,1)
         return kperp,kpara
     '''
+
     kperp = np.sqrt(kx[:,np.newaxis]**2 + ky[np.newaxis,:]**2)
     if FullPk==False:
         kpara = np.abs( 2*np.pi*np.fft.fftfreq(nz,d=lz/nz)[:int(nz/2)+1] )
         kperpspec = np.reshape( np.repeat(kperp,int(nz/2)+1) , (nx,ny,int(nz/2)+1) )
-    '''
     if FullPk==True:
-        indep = fthalftofull(nx,ny,nz,indep)
+        #indep = fthalftofull(nx,ny,nz,indep)
         kpara = 2*np.pi*np.fft.fftfreq(nz,d=lz/nz)
         kperpspec = np.reshape( np.repeat(kperp,nz) , (nx,ny,nz) )
-    '''
     kparaspec = np.tile(kpara,(nx,ny,1))
-    indep = getindep(nx,ny,nz)
-    indep[0,0,0] = False
 
-    indep_perp,indep_para = np.copy(indep),np.copy(indep)
-    indep_perp[kperpspec==0] = False
-    indep_para[kparaspec==0] = False
+    if doindep==True:
+        indep = getindep(nx,ny,nz)
+        indep[0,0,0] = False
+        indep_perp,indep_para = np.copy(indep),np.copy(indep)
+        indep_perp[kperpspec==0] = False
+        indep_para[kparaspec==0] = False
 
     kparaspec[0,0,0],kperpspec[0,0,0] = 0.,0.
 
@@ -379,7 +277,8 @@ def getkspec2D(dims,do2D=False,FullPk=False):
     exit()
     '''
 
-    return kperpspec,kparaspec,indep_perp,indep_para
+    if doindep==True: return kperpspec,kparaspec,indep_perp,indep_para
+    if doindep==False: return kperpspec,kparaspec
 
 ########################################################################
 # Bin 3D power spectrum in angle-averaged bins, weighting by Legendre  #

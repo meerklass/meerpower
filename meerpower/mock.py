@@ -193,7 +193,9 @@ def LogGalaxyCatalogue(n_g,dims0,ra,dec):
         yp = np.append(yp,yp0_i + np.random.uniform(-Hy/2,Hy/2,np.shape(yp0_i)))
         zp = np.append(zp,zp0_i + np.random.uniform(-Hz/2,Hz/2,np.shape(zp0_i)))
     # Transform Cartesian coordinates of galaxies into sky coordinates:
-    return grid.Cart2SphericalCoords(xp,yp,zp,ramean_arr=ra,decmean_arr=dec)
+    ra_g,dec_g,z_g = grid.Cart2SphericalCoords(xp,yp,zp,ramean_arr=ra,decmean_arr=dec)
+    ra_g[ra_g>360] -= 360 # Correct galaxies that go over 360, -> 361,362 etc.
+    return ra_g,dec_g,z_g
 
 def GetMock_OLDVERSION(Pmod,dims,b=1,f=0,doRSD=False,LogNorm=True):
     '''

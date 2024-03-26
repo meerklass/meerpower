@@ -141,8 +141,8 @@ def GetModelPk(z,kmin=1e-3,kmax=10,NonLinear=False,UseCAMB=True,UseNBK=False,Use
         return cosmology.LinearPower(cosmo, z, transfer='EisensteinHu')
     if UseCLASS==True:
         import classylss.binding as CLASS
-        #cosmo = CLASS.ClassEngine({'output': 'dTk vTk mPk', 'non linear': 'halofit', 'P_k_max_h/Mpc' : 20., "z_max_pk" : 100.0})
-        cosmo = CLASS.ClassEngine({'output': 'dTk vTk mPk', 'P_k_max_h/Mpc' : 20., "z_max_pk" : 100.0})
+        if NonLinear==False: cosmo = CLASS.ClassEngine({'output': 'dTk vTk mPk', 'P_k_max_h/Mpc' : kmax, "z_max_pk" : 100.0})
+        if NonLinear==True: cosmo = CLASS.ClassEngine({'output': 'dTk vTk mPk', 'non linear': 'halofit', 'P_k_max_h/Mpc' : kmax, "z_max_pk" : 100.0})
         sp = CLASS.Spectra(cosmo)
         k = np.linspace(kmin,kmax,10000)
         return interp1d(k, sp.get_pk(k=k,z=z) )

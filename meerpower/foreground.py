@@ -10,7 +10,7 @@ import HItools
 import model
 import healpy as hp
 
-def PCAclean(M,N_fg,w=None,W=None,returnAnalysis=False):
+def PCAclean(M,N_fg,w=None,W=None,returnAnalysis=False,MeanCentre=False):
     # N_fg: number of eigenmodes for PCA to remove
     # w: inverse noise weights
     # W: binary window function, used to calculate correct mean-centring
@@ -19,13 +19,12 @@ def PCAclean(M,N_fg,w=None,W=None,returnAnalysis=False):
     if w is not None: w = np.reshape(w,(nx*ny,nz))
     if W is not None: W = np.reshape(W,(nx*ny,nz))
     ### Mean Centring and axes configuration:
-    '''
-    if W is None: M = M - np.mean(M,0) # Mean centre data
-    else:
-        for i in range(np.shape(M)[1]): # Have to loop, since mask collapses arrange to 1D and doesn't allow mean along an axis
-            if len(M[:,i][W[:,i]==1])>0: # skip empty channels to avoid mean of empty slice error
-                M[:,i][W[:,i]==1] = M[:,i][W[:,i]==1] - np.nanmean(M[:,i][W[:,i]==1]) # Mean centre data
-    '''
+    if MeanCentre is True:
+        if W is None: M = M - np.mean(M,0) # Mean centre data
+        else:
+            for i in range(np.shape(M)[1]): # Have to loop, since mask collapses arrange to 1D and doesn't allow mean along an axis
+                if len(M[:,i][W[:,i]==1])>0: # skip empty channels to avoid mean of empty slice error
+                    M[:,i][W[:,i]==1] = M[:,i][W[:,i]==1] - np.nanmean(M[:,i][W[:,i]==1]) # Mean centre data
     M = np.swapaxes(M,0,1) # [Npix,Nz]->[Nz,Npix]
     if W is not None: W = np.swapaxes(W,0,1) # [Npix,Nz]->[Nz,Npix]
     if W is None: W = np.ones(np.shape(M)) # Use unit window everywhere if no window provided
@@ -433,7 +432,7 @@ def CleanLevel5Map(cube,counts,nu,w=None,trimcut=None):
     cleancube[counts!=0] = cleancube[counts!=0] * counts[counts!=0] # Reweight by counts for correct averaging later when all maps combined
     return cleancube,counts
 
-def TransferFunction(dT_obs,Nmock,N_fg,corrtype,kbins,k,TFfile,ra,dec,nu,wproj,dims0_rg,Np,window,compensate,interlace,mockfilepath_HI,mockfilepath_g=None,W_HI=None,w_HI_rg=None,W_HI_rg=None,w_g_rg=None,W_g_rg=None,taper_HI=1,taper_g=1,LoadTF=False,TF2D=False,kperpbins=None,kparabins=None):
+def TransferFunction(dT_obs,Nmock,N_fg,corrtype,kbins,k,TFfile,ra,dec,nu,wproj,dims0_rg,Np,window,compensate,interlace,mockfilepath_HI,mockfilepath_g=None,gamma=None,D_dish=None,w_HI=None,W_HI=None,doWeightFGclean=False,PCAMeanCentre=False,w_HI_rg=None,W_HI_rg=None,w_g_rg=None,W_g_rg=None,taper_HI=1,taper_g=1,LoadTF=False,TF2D=False,kperpbins=None,kparabins=None):
     # Loop over Nmock number of mocks injected into real data to compute transfer function
     # Assumes each mock is saved as ""[mockfilepath]_i.npy" where i = {0,Nmock-1}
     # corrtype: type of correlation to compute Transfer function for, options are:
@@ -447,27 +446,35 @@ def TransferFunction(dT_obs,Nmock,N_fg,corrtype,kbins,k,TFfile,ra,dec,nu,wproj,d
             if k is not None:  # Check TF matches k-bins using - only possible if k is provided
                 if len(k)!=len(k_TF):
                     print('\n Error: Loaded transfer function contains different k-bins\n'); exit()
-                if np.allclose(k,k_TF)==False:
+                if np.allclose(np.array(k,dtype='float32'),np.array(k_TF,dtype='float32'))==False:
                     print('\n Error: Loaded transfer function contains different k-bins\n'); exit()
             return T,T_nosub,k_TF
         if TF2D==True:
             T2d,k_TF = np.load(TFfile+'.npy',allow_pickle=True)
             return T2d,k_TF
     ### If no pre-saved TF, run calculation:
-    dT_clean_data = PCAclean(dT_obs,N_fg,w=None,W=W_HI)
+    if gamma is not None: dT_obs_resmooth,w_HI = telescope.weighted_reconvolve(dT_obs,w_HI,W_HI,ra,dec,nu,D_dish,gamma=gamma)
+    else: dT_obs_resmooth = np.copy(dT_obs)
+    if doWeightFGclean==True: w_FG = w_HI
+    else: w_FG = None
+    dT_clean_data = PCAclean(dT_obs_resmooth,N_fg,w=w_FG,W=W_HI,MeanCentre=PCAMeanCentre)
     ra_p,dec_p,nu_p,pixvals = grid.SkyPixelParticles(ra,dec,nu,wproj,map=dT_clean_data,W=W_HI,Np=Np)
     xp,yp,zp = grid.SkyCoordtoCartesian(ra_p,dec_p,HItools.Freq2Red(nu_p),ramean_arr=ra,decmean_arr=dec,doTile=False)
     dT_clean_data_rg,W_fft,counts = grid.mesh(xp,yp,zp,pixvals,dims0_rg,window,compensate,interlace,verbose=False)
     dT_clean_data_rg = taper_HI*dT_clean_data_rg
+    '''
     if TF2D==False:
         T = np.zeros((Nmock,len(kbins)-1))
         T_nosub = np.zeros((Nmock,len(kbins)-1))
     if TF2D==True:
         T = np.zeros((Nmock,len(kparabins)-1,len(kperpbins)-1))
+    '''
+    T,T_nosub = [],[]
     for i in range(Nmock):
         plot.ProgressBar(i,Nmock,header='\nConstructing transfer function...')
         # Read-in HI IM mock and mock galaxies:
         dT_mock = np.load(mockfilepath_HI + '_' + str(i) + '.npy')
+        dT_mock[W_HI==0] = 0 # ensure same pixels are flagged
         if corrtype=='Cross':
             ra_g,dec_g,z_g = np.load(mockfilepath_g + '_' + str(i) + '.npy')
             ### Grid mock galaxies:
@@ -475,7 +482,11 @@ def TransferFunction(dT_obs,Nmock,N_fg,corrtype,kbins,k,TFfile,ra,dec,nu,wproj,d
             n_g_rg,W_fft,counts = grid.mesh(xp,yp,zp,dims=dims0_rg,window=window,compensate=compensate,interlace=interlace,verbose=False)
             n_g_rg = taper_g*n_g_rg
         # Inject HI mock into data, clean and regrid both cleaned and original mock:
-        dT_clean_mock = PCAclean(dT_mock + dT_obs,N_fg,W=W_HI)
+        if gamma is not None:
+            dT_obs_mock_resmooth = telescope.weighted_reconvolve(dT_mock + dT_obs,w_HI,W_HI,ra,dec,nu,D_dish,gamma=gamma)[0]
+            dT_mock = telescope.weighted_reconvolve(dT_mock,w_HI,W_HI,ra,dec,nu,D_dish,gamma=gamma)[0]
+        else: dT_obs_mock_resmooth = dT_mock + dT_obs
+        dT_clean_mock = PCAclean(dT_obs_mock_resmooth,N_fg,w=w_FG,W=W_HI,MeanCentre=PCAMeanCentre)
         ra_p,dec_p,nu_p,pixvals = grid.SkyPixelParticles(ra,dec,nu,wproj,map=dT_clean_mock,W=W_HI,Np=Np)
         xp,yp,zp = grid.SkyCoordtoCartesian(ra_p,dec_p,HItools.Freq2Red(nu_p),ramean_arr=ra,decmean_arr=dec,doTile=False)
         dT_clean_mock_rg,W_fft,counts = grid.mesh(xp,yp,zp,pixvals,dims0_rg,window,compensate,interlace,verbose=False)
@@ -499,12 +510,18 @@ def TransferFunction(dT_obs,Nmock,N_fg,corrtype,kbins,k,TFfile,ra,dec,nu,wproj,d
             if TF2D==True:
                 Pk_dm,k2d,nmodes = power.Pk2D(dT_clean_mock_rg-dT_clean_data_rg , n_g_rg ,dims_rg,kperpbins,kparabins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
                 Pk_mm,k2d,nmodes = power.Pk2D(dT_mock_rg , n_g_rg ,dims_rg,kperpbins,kparabins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
-        T[i] = Pk_dm / Pk_mm
+
+        # Append results and save in each loop so can access intermediate saved TF whilst looping over mocks:
+        #T[i] = Pk_dm / Pk_mm
+        T.append( Pk_dm / Pk_mm )
         if TF2D==False:
-            T_nosub[i] = Pk_dm_nosub / Pk_mm
-    if TFfile is not None:
-        if TF2D==False: np.save(TFfile,[T,T_nosub,k])
-        if TF2D==True: np.save(TFfile,[T,k2d])
+            #T_nosub[i] = Pk_dm_nosub / Pk_mm
+            T_nosub.append( Pk_dm_nosub / Pk_mm )
+        if TFfile is not None:
+            import warnings # Use for ignoring jagged array warning in pickle save
+            warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
+            if TF2D==False: np.save(TFfile, [T,T_nosub,k] )
+            if TF2D==True: np.save(TFfile, [T,T_nosub,k] )
     if TF2D==True: return T,k2d
     else: return T,T_nosub,k
 
