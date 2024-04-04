@@ -17,6 +17,9 @@ HAVE_FFTW = False
 import dft # power box script
 import grid
 
+import cosmo
+H0 = cosmo.H(0)
+
 def getkspec(nx,ny,nz,dx,dy,dz,doRSD=False):
     # Obtain 3D grid of k-modes
     kx = dft.fftfreq(nx, d=dx, b=1)
@@ -49,7 +52,7 @@ def gauss_hermitian(lx,ly,lz,nx,ny,nz):
     dk = _make_hermitian(mag, pha)
     return dk[:-1,:-1,:-1] # Put back to even array by trimming off pixels
 
-def Generate(Pmod,dims,b=1,f=0,Tbar=1,doRSD=False,LogNorm=True,seed=None,W=None,LightCone=False,ra=None,dec=None,nu=None,wproj=None,Np=3,dims0=None,w_noise=None,sigma_N=None,PossionSampGalaxies=False,Ngal=None,ObtainExactNgal=True):
+def Generate(Pmod,dims,b=1,f=0,sig_v=0,Tbar=1,doRSD=False,LogNorm=True,seed=None,W=None,LightCone=False,ra=None,dec=None,nu=None,wproj=None,Np=3,dims0=None,w_noise=None,sigma_N=None,PossionSampGalaxies=False,Ngal=None,ObtainExactNgal=True):
     ### Generate a mock field
     # Default is to do a logN mock but if a Gaussian mock is required set LogNorm=False
     # seed: manually set this to same number to geneate fields to cross-correlate
@@ -91,7 +94,7 @@ def Generate(Pmod,dims,b=1,f=0,Tbar=1,doRSD=False,LogNorm=True,seed=None,W=None,
     pkspec = np.zeros(np.shape(kspec))
     pkspec[kspec!=0] = 1/vol * Pmod(kspec[kspec!=0])
     if doRSD==False: pkspec = b**2 * pkspec
-    if doRSD==True: pkspec = b**2 * (1 + (f/b)*muspec**2)**2 * pkspec
+    if doRSD==True: pkspec = b**2 * (1 + (f/b)*muspec**2)**2  / (1 + (kspec*muspec*sig_v/H0)**2) * pkspec
     if LogNorm==True:
         # Inverse Fourier transform to obtain the correlation function
         xigrid = vol * np.real(dft.ifft(pkspec, L=[lx,ly,lz], a=1, b=1)[0])
@@ -132,12 +135,12 @@ def Generate(Pmod,dims,b=1,f=0,Tbar=1,doRSD=False,LogNorm=True,seed=None,W=None,
 def PoissonSampleGalaxies(delta_g,dims,Ngal,W=None,ObtainExactNgal=True):
     # delta_g: galaxy overdensity field with minimum -1
     # W is an optional survey selection function
-    Ngal = int(Ngal) # ensure Ngal is an integer and not float
     lx,ly,lz,nx,ny,nz = dims
-    if W is None:
-        ndens = Ngal/(nx*ny*nz)
-        W = np.ones((nx,ny,nz)) * ndens # Uniform survey selection function
-    n_g = (delta_g + 1) * W
+    Ngal = int(Ngal) # ensure Ngal is an integer and not float
+    nbar = Ngal/(nx*ny*nz)
+    if W is None: W = np.ones((nx,ny,nz)) # Uniform survey selection function
+    n_g = (delta_g + 1) * nbar * W
+    n_g /= (np.sum(n_g)/Ngal) # ensure sum(n_g)=Ngal after survey selection applied
     n_g_poisson = np.random.poisson( n_g )
     if ObtainExactNgal==True:
         # Above Poisson method is fast but doesn't deliver the exact target Ngal,
