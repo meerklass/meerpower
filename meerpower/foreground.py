@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-#import mock
+import Init
 import power
 import plot
 import telescope
@@ -8,7 +8,7 @@ import grid
 import cosmo
 import HItools
 import model
-import healpy as hp
+#import healpy as hp - only needed in some functions for sims which are currently not used
 
 def PCAclean(M,N_fg,w=None,W=None,returnAnalysis=False,MeanCentre=False):
     # N_fg: number of eigenmodes for PCA to remove
@@ -432,7 +432,7 @@ def CleanLevel5Map(cube,counts,nu,w=None,trimcut=None):
     cleancube[counts!=0] = cleancube[counts!=0] * counts[counts!=0] # Reweight by counts for correct averaging later when all maps combined
     return cleancube,counts
 
-def TransferFunction(dT_obs,Nmock,N_fg,corrtype,kbins,k,TFfile,ra,dec,nu,wproj,dims0_rg,Np,window,compensate,interlace,mockfilepath_HI,mockfilepath_g=None,gamma=None,D_dish=None,w_HI=None,W_HI=None,doWeightFGclean=False,PCAMeanCentre=False,w_HI_rg=None,W_HI_rg=None,w_g_rg=None,W_g_rg=None,taper_HI=1,taper_g=1,LoadTF=False,TF2D=False,kperpbins=None,kparabins=None):
+def TransferFunction(dT_obs,Nmock,N_fg,corrtype,kbins,k,TFfile,ra,dec,nu,wproj,dims0_rg,Np,window,compensate,interlace,mockfilepath_HI,mockfilepath_g=None,gal_cat=None,gamma=None,D_dish=None,w_HI=None,W_HI=None,doWeightFGclean=False,PCAMeanCentre=False,w_HI_rg=None,W_HI_rg=None,w_g_rg=None,W_g_rg=None,kcuts=None,taper_HI=1,taper_g=1,LoadTF=False,TF2D=False,kperpbins=None,kparabins=None):
     # Loop over Nmock number of mocks injected into real data to compute transfer function
     # Assumes each mock is saved as ""[mockfilepath]_i.npy" where i = {0,Nmock-1}
     # corrtype: type of correlation to compute Transfer function for, options are:
@@ -441,17 +441,15 @@ def TransferFunction(dT_obs,Nmock,N_fg,corrtype,kbins,k,TFfile,ra,dec,nu,wproj,d
     dims_rg = dims0_rg[:6]
     ### Load pre-saved data if requested:
     if LoadTF==True:
+        T,T_nosub = np.load(TFfile+'.npy',allow_pickle=True)
+        k_TF = np.load(TFfile+'_karray.npy',allow_pickle=True)
         if TF2D==False:
-            T,T_nosub,k_TF = np.load(TFfile+'.npy',allow_pickle=True)
             if k is not None:  # Check TF matches k-bins using - only possible if k is provided
                 if len(k)!=len(k_TF):
                     print('\n Error: Loaded transfer function contains different k-bins\n'); exit()
                 if np.allclose(np.array(k,dtype='float32'),np.array(k_TF,dtype='float32'))==False:
                     print('\n Error: Loaded transfer function contains different k-bins\n'); exit()
-            return T,T_nosub,k_TF
-        if TF2D==True:
-            T2d,k_TF = np.load(TFfile+'.npy',allow_pickle=True)
-            return T2d,k_TF
+        return T,T_nosub,k_TF
     ### If no pre-saved TF, run calculation:
     if gamma is not None: dT_obs_resmooth,w_HI = telescope.weighted_reconvolve(dT_obs,w_HI,W_HI,ra,dec,nu,D_dish,gamma=gamma)
     else: dT_obs_resmooth = np.copy(dT_obs)
@@ -461,31 +459,32 @@ def TransferFunction(dT_obs,Nmock,N_fg,corrtype,kbins,k,TFfile,ra,dec,nu,wproj,d
     ra_p,dec_p,nu_p,pixvals = grid.SkyPixelParticles(ra,dec,nu,wproj,map=dT_clean_data,W=W_HI,Np=Np)
     xp,yp,zp = grid.SkyCoordtoCartesian(ra_p,dec_p,HItools.Freq2Red(nu_p),ramean_arr=ra,decmean_arr=dec,doTile=False)
     dT_clean_data_rg,W_fft,counts = grid.mesh(xp,yp,zp,pixvals,dims0_rg,window,compensate,interlace,verbose=False)
-    dT_clean_data_rg = taper_HI*dT_clean_data_rg
-    '''
-    if TF2D==False:
-        T = np.zeros((Nmock,len(kbins)-1))
-        T_nosub = np.zeros((Nmock,len(kbins)-1))
-    if TF2D==True:
-        T = np.zeros((Nmock,len(kparabins)-1,len(kperpbins)-1))
-    '''
+    #dT_clean_data_rg = taper_HI*dT_clean_data_rg
     T,T_nosub = [],[]
     for i in range(Nmock):
         plot.ProgressBar(i,Nmock,header='\nConstructing transfer function...')
         # Read-in HI IM mock and mock galaxies:
         dT_mock = np.load(mockfilepath_HI + '_' + str(i) + '.npy')
-        dT_mock[W_HI==0] = 0 # ensure same pixels are flagged
         if corrtype=='Cross':
             ra_g,dec_g,z_g = np.load(mockfilepath_g + '_' + str(i) + '.npy')
+            if gal_cat=='cmass':
+                zmin,zmax = HItools.Freq2Red(np.max(nu)),HItools.Freq2Red(np.min(nu))
+                ra_g,dec_g,z_g = Init.pre_process_2019Lband_CMASS_galaxies(ra_g,dec_g,z_g,ra,dec,zmin,zmax,W_HI)
             ### Grid mock galaxies:
             xp,yp,zp = grid.SkyCoordtoCartesian(ra_g,dec_g,z_g,ramean_arr=ra,decmean_arr=dec,doTile=False)
             n_g_rg,W_fft,counts = grid.mesh(xp,yp,zp,dims=dims0_rg,window=window,compensate=compensate,interlace=interlace,verbose=False)
-            n_g_rg = taper_g*n_g_rg
+            #n_g_rg = taper_g*n_g_rg
         # Inject HI mock into data, clean and regrid both cleaned and original mock:
         if gamma is not None:
             dT_obs_mock_resmooth = telescope.weighted_reconvolve(dT_mock + dT_obs,w_HI,W_HI,ra,dec,nu,D_dish,gamma=gamma)[0]
             dT_mock = telescope.weighted_reconvolve(dT_mock,w_HI,W_HI,ra,dec,nu,D_dish,gamma=gamma)[0]
         else: dT_obs_mock_resmooth = dT_mock + dT_obs
+
+
+        dT_obs_mock_resmooth[W_HI==0] = 0 # ensure same pixels are flagged
+        dT_mock[W_HI==0] = 0 # ensure same pixels are flagged
+
+
         dT_clean_mock = PCAclean(dT_obs_mock_resmooth,N_fg,w=w_FG,W=W_HI,MeanCentre=PCAMeanCentre)
         ra_p,dec_p,nu_p,pixvals = grid.SkyPixelParticles(ra,dec,nu,wproj,map=dT_clean_mock,W=W_HI,Np=Np)
         xp,yp,zp = grid.SkyCoordtoCartesian(ra_p,dec_p,HItools.Freq2Red(nu_p),ramean_arr=ra,decmean_arr=dec,doTile=False)
@@ -493,37 +492,35 @@ def TransferFunction(dT_obs,Nmock,N_fg,corrtype,kbins,k,TFfile,ra,dec,nu,wproj,d
         ra_p,dec_p,nu_p,pixvals = grid.SkyPixelParticles(ra,dec,nu,wproj,map=dT_mock,W=W_HI,Np=Np)
         xp,yp,zp = grid.SkyCoordtoCartesian(ra_p,dec_p,HItools.Freq2Red(nu_p),ramean_arr=ra,decmean_arr=dec,doTile=False)
         dT_mock_rg,W_fft,counts = grid.mesh(xp,yp,zp,pixvals,dims0_rg,window,compensate,interlace,verbose=False)
-        dT_clean_mock_rg,dT_mock_rg = taper_HI*dT_clean_mock_rg,taper_HI*dT_mock_rg # multiply tapering window by HI map
+        #dT_clean_mock_rg,dT_mock_rg = taper_HI*dT_clean_mock_rg,taper_HI*dT_mock_rg # multiply tapering window by HI map
         if corrtype=='HIauto':
             if TF2D==False:
-                Pk_dm,k,nmodes = power.Pk(dT_clean_mock_rg-dT_clean_data_rg , dT_mock_rg , dims_rg,kbins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
-                Pk_dm_nosub,k,nmodes = power.Pk(dT_clean_mock_rg , dT_mock_rg , dims_rg,kbins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
-                Pk_mm,k,nmodes = power.Pk(dT_mock_rg , dT_mock_rg , dims_rg,kbins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
+                Pk_dm,k,nmodes = power.Pk(dT_clean_mock_rg-dT_clean_data_rg , dT_mock_rg , dims_rg,kbins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg,kcuts=kcuts)
+                Pk_dm_nosub,k,nmodes = power.Pk(dT_clean_mock_rg , dT_mock_rg , dims_rg,kbins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg,kcuts=kcuts)
+                Pk_mm,k,nmodes = power.Pk(dT_mock_rg , dT_mock_rg , dims_rg,kbins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg,kcuts=kcuts)
             if TF2D==True:
-                Pk_dm,k2d,nmodes = power.Pk2D(dT_clean_mock_rg-dT_clean_data_rg , dT_mock_rg ,dims_rg,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
-                Pk_mm,k2d,nmodes = power.Pk2D(dT_mock_rg , dT_mock_rg ,dims_rg,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
+                Pk_dm,k,nmodes = power.Pk2D(dT_clean_mock_rg-dT_clean_data_rg , dT_mock_rg ,dims_rg,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
+                Pk_dm_nosub,k,nmodes = power.Pk2D(dT_clean_mock_rg , dT_mock_rg ,dims_rg,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
+                Pk_mm,k,nmodes = power.Pk2D(dT_mock_rg , dT_mock_rg ,dims_rg,kperpbins,kparabins,corrtype='HIauto',w1=w_HI_rg,w2=w_HI_rg,W1=W_HI_rg,W2=W_HI_rg)
         if corrtype=='Cross':
             if TF2D==False:
-                Pk_dm,k,nmodes = power.Pk(dT_clean_mock_rg-dT_clean_data_rg , n_g_rg , dims_rg,kbins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
-                Pk_dm_nosub,k,nmodes = power.Pk(dT_clean_mock_rg , n_g_rg , dims_rg,kbins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
-                Pk_mm,k,nmodes = power.Pk(dT_mock_rg , n_g_rg , dims_rg,kbins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
+                Pk_dm,k,nmodes = power.Pk(dT_clean_mock_rg-dT_clean_data_rg , n_g_rg , dims_rg,kbins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg,kcuts=kcuts)
+                Pk_dm_nosub,k,nmodes = power.Pk(dT_clean_mock_rg , n_g_rg , dims_rg,kbins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg,kcuts=kcuts)
+                Pk_mm,k,nmodes = power.Pk(dT_mock_rg , n_g_rg , dims_rg,kbins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg,kcuts=kcuts)
             if TF2D==True:
-                Pk_dm,k2d,nmodes = power.Pk2D(dT_clean_mock_rg-dT_clean_data_rg , n_g_rg ,dims_rg,kperpbins,kparabins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
-                Pk_mm,k2d,nmodes = power.Pk2D(dT_mock_rg , n_g_rg ,dims_rg,kperpbins,kparabins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
+                Pk_dm,k,nmodes = power.Pk2D(dT_clean_mock_rg-dT_clean_data_rg , n_g_rg ,dims_rg,kperpbins,kparabins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
+                Pk_dm_nosub,k,nmodes = power.Pk2D(dT_clean_mock_rg , n_g_rg ,dims_rg,kperpbins,kparabins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
+                Pk_mm,k,nmodes = power.Pk2D(dT_mock_rg , n_g_rg ,dims_rg,kperpbins,kparabins,corrtype='Cross',w1=w_HI_rg,w2=w_g_rg,W1=W_HI_rg,W2=W_g_rg)
 
         # Append results and save in each loop so can access intermediate saved TF whilst looping over mocks:
-        #T[i] = Pk_dm / Pk_mm
         T.append( Pk_dm / Pk_mm )
-        if TF2D==False:
-            #T_nosub[i] = Pk_dm_nosub / Pk_mm
-            T_nosub.append( Pk_dm_nosub / Pk_mm )
+        T_nosub.append( Pk_dm_nosub / Pk_mm )
         if TFfile is not None:
-            import warnings # Use for ignoring jagged array warning in pickle save
-            warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
-            if TF2D==False: np.save(TFfile, [T,T_nosub,k] )
-            if TF2D==True: np.save(TFfile, [T,T_nosub,k] )
-    if TF2D==True: return T,k2d
-    else: return T,T_nosub,k
+            #import warnings # Use for ignoring jagged array warning in pickle save
+            #warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
+            np.save(TFfile, [T,T_nosub] )
+            np.save(TFfile+'_karray', k )
+    return T,T_nosub,k
 
 def TransferFunction_multimap(mapfilepaths,Nmock,N_fg,corrtype,kbins,k,TFfile,ra,dec,nu,wproj,dims0_rg,Np,window,compensate,interlace,W_HI,mockfilepath_HI,mockfilepath_g=None,w_HI_rg=None,W_HI_rg=None,w_g_rg=None,W_g_rg=None,N_fg2nd=0,taper_HI=1,taper_g=1,LoadTF=False,TF2D=False,kperpbins=None,kparabins=None):
     '''Transfer function calculation for cleaning of individual maps (scan or dish)
