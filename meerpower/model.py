@@ -6,7 +6,8 @@ import HItools
 import grid
 import plot
 import matplotlib.pyplot as plt
-H_0 = 67.7 # Planck15
+import cosmo
+H0 = cosmo.H(0)
 
 def FitPolynomial(x,y,n,returncoef=False):
     ### Fit a polynomial of order n to a generic 1D data array [x,y]
@@ -56,13 +57,13 @@ def fix_pixels(input,W,IncludeDeadLoS=False):
     input[np.isnan(input)] = 0 # convert NaNs back to zeros
     return input,W_fix
 
-def PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,sig_N=0,w1=None,w2=None,W1=None,W2=None,MatterRSDs=False,lwin=None,pixwin=None,s_pix=0,s_pix_ra=0,s_pix_dec=0,s_para=0,Damp=None,reGriddamp=False,gridinterp=False):
+def PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,sig_N=0,w1=None,w2=None,W1=None,W2=None,MatterRSDs=False,lwin=None,pixwin=None,s_pix1=0,s_pix2=0,s_para1=0,s_para2=0,Damp=None,reGriddamp=False,gridinterp=False):
     ### Separate function to PkMod which leaves model Pk in 3D spectrum format
     if len(dims)==6: lx,ly,lz,nx,ny,nz = dims
     if len(dims)==9: lx,ly,lz,nx,ny,nz,x0,y0,z0 = dims
     kspec[kspec==0] = 1 # avoid Pmod-model interpolation for k=0
     # Collect damping terms from beam/FG/channels/heapy pixelisation:
-    if Damp is None: Damp = B_beam(muspec,kspec,R_beam1)*B_beam(muspec,kspec,R_beam2)*B_chan(muspec,kspec,s_para)**2*B_pix(muspec,kspec,s_pix=s_pix)**2*B_ra(dims,s_pix_ra=0)**2*B_dec(dims,s_pix_dec=0)**2*B_ang(muspec,kspec,pixwin)**2
+    if Damp is None: Damp = B_beam(muspec,kspec,R_beam1)*B_beam(muspec,kspec,R_beam2)*B_chan(muspec,kspec,s_para1)*B_chan(muspec,kspec,s_para2)*B_pix(muspec,kspec,s_pix=s_pix1)*B_pix(muspec,kspec,s_pix=s_pix2)*B_ang(muspec,kspec,pixwin)**2
     if reGriddamp==True: # pixelised damping from binning sky particles onto Fouried grid
         s_pix_grid = np.mean([lx/nx,ly/ny,ly/ny])
         B_pix_grid = np.sin(kspec*s_pix_grid/2)/(kspec*s_pix_grid/2)
@@ -72,13 +73,13 @@ def PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1
     if MatterRSDs==False: beta1,beta2 = f/b1,f/b2 # Include bias in Kaiser term (sensitive in quadrupole)
     if MatterRSDs==True: beta1,beta2 = f,f # Exclude bias in Kaiser term, i.e. only apply RSD to dark matter field, leaving a single amplitude parameter to constrain
     if gridinterp==True: # Do full grid interp
-        pkspecmod = Damp * Tbar1*Tbar2 * b1*b2*( r + (beta1 + beta2)*muspec**2 + beta1*beta2*muspec**4 ) / (1 + (kspec*muspec*sig_v/H_0)**2) * Pmod(kspec) + P_N
+        pkspecmod = Damp * Tbar1*Tbar2 * b1*b2*( r + (beta1 + beta2)*muspec**2 + beta1*beta2*muspec**4 ) / (1 + (kspec*muspec*sig_v/H0)**2) * Pmod(kspec) + P_N
         if w1 is not None or w2 is not None or W1 is not None or W2 is not None: # Convolve with window
             pkspecmod = power.getpkconv(pkspecmod,dims,w1,w2,W1,W2)
         return pkspecmod
 
     kmod = np.linspace(np.min(kspec),np.max(kspec),1000)
-    Pk_int = lambda mu: Tbar1*Tbar2 * b1*b2*( r + (beta1 + beta2)*mu**2 + beta1*beta2*mu**4 ) / (1 + (k_i*mu*sig_v/H_0)**2) * Pmod(k_i) * B_beam(mu,k_i,R_beam1) * B_beam(mu,k_i,R_beam2) + P_N
+    Pk_int = lambda mu: Tbar1*Tbar2 * b1*b2*( r + (beta1 + beta2)*mu**2 + beta1*beta2*mu**4 ) / (1 + (k_i*mu*sig_v/H0)**2) * Pmod(k_i) * B_beam(mu,k_i,R_beam1) * B_beam(mu,k_i,R_beam2) + P_N
     pkmod = np.zeros(len(kmod))
     nmodes = np.zeros(len(kmod))
     for i in range(len(kmod)):
@@ -88,7 +89,7 @@ def PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1
     pkspecmod = pkmod(kspec)
     '''
     if MatterRSDs==True: # Only apply Kaiser term to matter power spectrum leaving a single amplitude parameter
-        pkspecmod = Tbar1*Tbar2 * b1*b2 * r * (1 + f*muspec**2)**2 / (1 + (kspec*muspec*sig_v/H_0)**2) * Pmod(kspec) * B_beam(muspec,kspec,R_beam1) * B_beam(muspec,kspec,R_beam2)
+        pkspecmod = Tbar1*Tbar2 * b1*b2 * r * (1 + f*muspec**2)**2 / (1 + (kspec*muspec*sig_v/H0)**2) * Pmod(kspec) * B_beam(muspec,kspec,R_beam1) * B_beam(muspec,kspec,R_beam2)
         #pkspecmod[kspec==1] = 0
     '''
     if w1 is not None or w2 is not None or W1 is not None or W2 is not None: # Convolve with window
@@ -99,14 +100,14 @@ def theta_n(nxi,nyi,nzi):
     if (nxi + nyi + nzi) % 2 == 0: return 1 # even
     else: return 0
 
-def PkMod(Pmod,dims,kbins,b1=1,b2=1,f=0,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,sig_N=0,w1=None,w2=None,W1=None,W2=None,kcuts=None,doMultipole=False,Pk2D=False,kperpbins=None,kparabins=None,MatterRSDs=False,interpkbins=False,lwin=None,pixwin=None,s_pix=0,s_pix_ra=0,s_pix_dec=0,s_para=0,Damp=None,reGriddamp=False,gridinterp=False):
+def PkMod(Pmod,dims,kbins,b1=1,b2=1,f=0,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_beam2=0,sig_N=0,w1=None,w2=None,W1=None,W2=None,kcuts=None,doMultipole=False,Pk2D=False,kperpbins=None,kparabins=None,MatterRSDs=False,interpkbins=False,lwin=None,pixwin=None,s_pix1=0,s_pix2=0,s_para1=0,s_para2=0,Damp=None,reGriddamp=False,gridinterp=False):
     ### r is cross-correlation coeficient if doing a cross-correlation, set all _1 and _2 parameters
     ###  equal if doing an auto correlation
     #if len(dims)==6: lx,ly,lz,nx,ny,nz = dims
     #if len(dims)==9: lx,ly,lz,nx,ny,nz,x0,y0,z0 = dims
     if interpkbins==True: # If True, interpolate model Pk over same grid and bin using same pipeline as data
         kspec,muspec,indep = power.getkspec(dims,FullPk=True)
-        pkspecmod = PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,MatterRSDs,lwin,pixwin,s_pix,s_pix_ra,s_pix_dec,s_para,Damp=Damp,reGriddamp=reGriddamp,gridinterp=gridinterp)
+        pkspecmod = PkModSpec(Pmod,dims,kspec,muspec,b1,b2,f,sig_v,Tbar1,Tbar2,r,R_beam1,R_beam2,sig_N,w1,w2,W1,W2,MatterRSDs,lwin,pixwin,s_pix1,s_pix2,s_para1,s_para2,Damp=Damp,reGriddamp=reGriddamp,gridinterp=gridinterp)
         if doMultipole==False:
             if Pk2D==False:
                 pkmod,k,nmodes = power.binpk(pkspecmod,dims[:6],kbins,kcuts,FullPk=True,doindep=False)
@@ -124,7 +125,7 @@ def PkMod(Pmod,dims,kbins,b1=1,b2=1,f=0,sig_v=0,Tbar1=1,Tbar2=1,r=1,R_beam1=0,R_
             deltak = [kbins[i]-kbins[i-1] for i in range(1,len(kbins))]
             if sig_N!=0: P_N = sig_N**2 * (lx*ly*lz)/(nx*ny*nz) # noise term
             else: P_N = 0
-            Pk_int = lambda mu: Tbar1*Tbar2 * b1*b2*( r + (beta1 + beta2)*mu**2 + beta1*beta2*mu**4 ) / (1 + (k_i*mu*sig_v/H_0)**2) * Pmod(k_i) * B_beam(mu,k_i,R_beam1) * B_beam(mu,k_i,R_beam2) + P_N
+            Pk_int = lambda mu: Tbar1*Tbar2 * b1*b2*( r + (beta1 + beta2)*mu**2 + beta1*beta2*mu**4 ) / (1 + (k_i*mu*sig_v/H0)**2) * Pmod(k_i) * B_beam(mu,k_i,R_beam1) * B_beam(mu,k_i,R_beam2) + P_N
             pkmod = np.zeros(len(kmod))
             nmodes = np.zeros(len(kmod))
             for i in range(len(kmod)):
@@ -254,16 +255,21 @@ def DetectionSigma(data,model,errors,nullmodel=None):
 
 #Reduced Chi-squared function
 def ChiSquare(x_obs,x_mod,x_err,dof=None):
-    if dof is None: return np.sum( ((x_obs-x_mod)/x_err)**2 )
-    else: # return reduced ChiSquare
-        return np.sum( ((x_obs-x_mod)/x_err)**2 ) / dof
+    if len(np.shape(x_err))==1:
+        if dof is None: return np.sum( ((x_obs-x_mod)/x_err)**2 )
+        else: # return reduced ChiSquare
+            return np.sum( ((x_obs-x_mod)/x_err)**2 ) / dof
+    if len(np.shape(x_err))==2:
+        if dof is None: return np.dot( np.dot( (x_obs - x_mod) , np.linalg.inv(x_err)) , (x_obs - x_mod) )
+        else: # return reduced ChiSquare
+            return np.dot( np.dot( (x_obs - x_mod) , np.linalg.inv(x_err)) , (x_obs - x_mod) ) / dof
 
 ########################################################################
 #  Least-Squares Fitting Functions                                     #
 ########################################################################
 from scipy.optimize import curve_fit
 
-def LSqFitPkAmplitude(Pk,err,Pmod,zeff_,dims_rg,kbins,corrtype='HIauto',P_N_=0,kmin=None,kmax=None,b2=1,f=0,sig_v=0,R_beam1=0,R_beam2=0,w1=None,w2=None,W1=None,W2=None,s_pix=None,s_para=None):
+def LSqFitPkAmplitude(Pk,err,Pmod,zeff_,dims_rg,kbins,corrtype='HIauto',P_N_=0,kmin=None,kmax=None,b2=1,f=0,sig_v=0,R_beam1=0,R_beam2=0,w1=None,w2=None,W1=None,W2=None,kcuts=None,s_pix=None,s_para=None):
     ### Least-squares fit of power, single factor scaling power spectrum amplitude
     ### default assumes b_HI=1 and r=1, so fitting joint Omega_HI b_HI r parameter
     ### if fitting auto-HI - leave b_g=1 and amplitude fit is Omega_HI^2 b_HI^2
@@ -274,14 +280,18 @@ def LSqFitPkAmplitude(Pk,err,Pmod,zeff_,dims_rg,kbins,corrtype='HIauto',P_N_=0,k
     global pkmod; global zeff; global P_N; global kcut
     zeff = zeff_; P_N = P_N_
 
-    pkmod,k = PkMod(Pmod,dims_rg,kbins,b1=1,b2=b2,f=f,sig_v=sig_v,Tbar1=1,Tbar2=1,r=1,R_beam1=R_beam1,R_beam2=R_beam2,w1=w1,w2=w2,W1=W1,W2=W2,s_pix=s_pix,s_para=s_para,interpkbins=True,MatterRSDs=False,gridinterp=True)[0:2]
-    #pkmod,k,nmodes = PkMod(Pmod,dims_rg,kbins,b2=b2,f=f,sig_v=sig_v,R_beam1=R_beam1,R_beam2=R_beam2,w1=w1,w2=w2,W1=W1,W2=W2,interpkbins=True,MatterRSDs=True)
+    pkmod,k = PkMod(Pmod,dims_rg,kbins,b1=1,b2=b2,f=f,sig_v=sig_v,Tbar1=1,Tbar2=1,r=1,R_beam1=R_beam1,R_beam2=R_beam2,w1=w1,w2=w2,W1=W1,W2=W2,kcuts=kcuts,s_pix1=s_pix,s_para1=s_para,interpkbins=True,MatterRSDs=True,gridinterp=True)[0:2]
+
     # Implement any k-cuts:
     if kmin is None: kmin = kbins[0]
     if kmax is None: kmax = kbins[-1]
     kcut = (k>kmin) & (k<kmax)
-    if corrtype=='HIauto': popt, pcov = curve_fit(PkAutoAmp, k[kcut], Pk[kcut], p0=0.5e-3, sigma=err[kcut], bounds=(0, 10))
-    if corrtype=='Cross': popt, pcov = curve_fit(PkCrossAmp, k[kcut], Pk[kcut], p0=0.5e-3, sigma=err[kcut], bounds=(0, 10))
+    if len(np.shape(err))==1: err = err[kcut]
+    if len(np.shape(err))==2: # using full covariance (nk x nk)
+        err = err[kcut]
+        err = err[:,kcut]
+    if corrtype=='HIauto': popt, pcov = curve_fit(PkAutoAmp, k[kcut], Pk[kcut], p0=0.5e-3, sigma=err, bounds=(0, 10))
+    if corrtype=='Cross': popt, pcov = curve_fit(PkCrossAmp, k[kcut], Pk[kcut], p0=0.5e-3, sigma=err, bounds=(0, 10))
     OmHIbHI, OmHIbHI_err = popt[0],np.sqrt(pcov[0,0]) # take errors on parameter estimates as root of the covariance (since only 1 parameter, cov = [1,1] matrix)
     return OmHIbHI, OmHIbHI_err
 
@@ -299,30 +309,20 @@ def PkCrossAmp(k,OmHIbHI):
 ########################################################################
 # MCMC Fitting Functions                                               #
 ########################################################################
-def model(theta,k):
-    if ndim==1:
-        OmHI = theta
-        Tbar = HItools.Tbar(zeff,OmHI)
-        return Tbar * pkmod
-    if ndim==2:
-        OmHI,b_HI = theta
-        Tbar = HItools.Tbar(zeff,OmHI)
-        return PkMod(Pmod,dims,kbins,b_HI,b_g,f,sig_v,Tbar1=Tbar,Tbar2=1,r=r_HIg,R_beam1=R_beam,R_beam2=0,w1=w_HI,w2=w_g,W1=W_HI,W2=W_g,interpkbins=True)[0]
+def OmHImodelPk(theta,k):
+    OmHI = theta
+    Tbar = HItools.Tbar(zeff,OmHI)
+    return Tbar * pkmod
 
 #log likelihood
 def lnlike(theta, k, Pk, Pkerr):
-    return -0.5 * ChiSquare(Pk,model(theta,k),Pkerr)
+    return -0.5 * ChiSquare(Pk,OmHImodelPk(theta,k),Pkerr)
 
 #priors
 def lnprior(theta):
-    if ndim==1:
-        OmHI = theta
-        if 0 < OmHI < 1: #imposing a prior
-            return 0.0
-    if ndim==2:
-        OmHI,b_HI = theta
-        if 0 < OmHI < 1 and 0 < b_HI < 4: #imposing a prior
-            return 0.0
+    OmHI = theta
+    if 0 < OmHI < 1: #imposing a prior
+        return 0.0
     return -np.inf
 
 def lnprob(theta, k, Pk, Pkerr):
@@ -331,28 +331,28 @@ def lnprob(theta, k, Pk, Pkerr):
         return -np.inf
     return lp + lnlike(theta,k,Pk,Pkerr)
 
-def runMCMC(k,Pk,Pkerr,Omega_HI_fid,b_HI_fid,zeff_,Pmod_,f_,sig_v_,R_beam_,dims_rg_,kbins_,r_HIg_=None,b_g_=None,w1_=None,W1_=None,w2_=None,W2_=None,nwalkers=200,niter=500,ndim_=2,ContinueBackend=False,backendfile=None):
-    '''
-    Main run function for MCMC
-    '''
+def runOmHIbHIrMCMC(k,Pk,Pkerr,Pmod,Omega_HI_fid,b_HI_fid,zeff_,f,sig_v,R_beam,dims_rg,kbins,kmincut,kmaxcut,r=None,b_g=None,w1=None,W1=None,w2=None,W2=None,kcuts=None,s_pix=0,s_para=0,nwalkers=200,niter=500,ContinueBackend=False,backendfile=None):
     import emcee
-    #global zeff; global Pmod; global b_g; global f; global sig_v; global r_HIg; global R_beam; global dims; global kbins; global w_g; global W_g; global w_HI; global W_HI; global ndim
-    #zeff=zeff_; Pmod=Pmod_; b_g=b_g_; f=f_; sig_v=sig_v_; r_HIg=r_HIg_; R_beam=R_beam_; dims_rg=dims_rg_; kbins=kbins_; w_g=w_g_; W_g=W_g_; w_HI=w_HI_; W_HI=W_HI_; ndim=ndim_
     global zeff
+    zeff=zeff_
 
-    if ndim==1:
-        # Calculate model with b_HI = Tbar = 1 to use in amplitude fitting:
-        global pkmod
-        #pkmod = PkMod(Pmod,dims,kbins,1,b_g,f,sig_v,Tbar1=1,Tbar2=1,r=r_HIg,R_beam1=R_beam,R_beam2=0,w1=w_HI,w2=w_g,W1=W_HI,W2=W_g,interpkbins=True,MatterRSDs=True)[0]
-        pkmod = PkMod(Pmod,dims_rg,kbins,b1=1,b2=b2,f=f,sig_v=sig_v,Tbar1=1,Tbar2=1,r=1,R_beam1=R_beam1,R_beam2=R_beam2,w1=w1,w2=w2,W1=W1,W2=W2,s_pix=s_pix,s_para=s_para,interpkbins=True,MatterRSDs=False,gridinterp=True)[0]
+    # Calculate model with b_HI = Tbar = 1 to use in amplitude fitting:
+    global pkmod
+    pkmod = PkMod(Pmod,dims_rg,kbins,b1=1,b2=b_g,f=f,sig_v=sig_v,Tbar1=1,Tbar2=1,r=1,R_beam1=R_beam,R_beam2=0,w1=w1,w2=w2,W1=W1,W2=W2,kcuts=kcuts,s_pix1=s_pix,s_para1=s_para,interpkbins=True,MatterRSDs=True,gridinterp=True)[0]
 
-        OmHI_p0 = np.random.normal(Omega_HI_fid,scale=0.1*Omega_HI_fid,size=nwalkers)
-        p0 = np.swapaxes(np.array([OmHI_p0]),0,1)
-    if ndim==2: # Fit Omega_HI and b_HI independently
-        OmHI_p0 = np.random.normal(Omega_HI_fid,scale=0.1*Omega_HI_fid,size=nwalkers)
-        b_HI_p0 = np.random.normal(b_HI_fid,scale=0.1*b_HI_fid,size=nwalkers)
-        p0 = np.swapaxes(np.array([OmHI_p0,b_HI_p0]),0,1)
+    kbin_cut = (k>kmincut) & (k<kmaxcut)
+    pkmod = pkmod[kbin_cut]
+    Pk = Pk[kbin_cut]
+    if len(np.shape(Pkerr))==1: Pkerr = Pkerr[kbin_cut]
+    if len(np.shape(Pkerr))==2: # using full covariance (nk x nk)
+        Pkerr = Pkerr[kbin_cut]
+        Pkerr = Pkerr[:,kbin_cut]
+    k = k[kbin_cut]
 
+    OmHI_p0 = np.random.normal(Omega_HI_fid,scale=0.1*Omega_HI_fid,size=nwalkers)
+    p0 = np.swapaxes(np.array([OmHI_p0]),0,1)
+
+    ndim = 1
     backend = emcee.backends.HDFBackend(backendfile)
     if ContinueBackend==False: backend.reset(nwalkers, ndim)
     sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob, backend=backend, args=(k,Pk,Pkerr))

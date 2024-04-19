@@ -66,7 +66,9 @@ def gen_noise_map(hitmap,W,nu,T_sys=None):
     deltav *= 1e6 # Convert MHz to Hz
     t_p = hitmap * 2 # time per pointing [secs] based on MeerKAT 2 seconds per time stamp
     sigma_N = np.zeros((nx,ny,nz))
+    t_p[t_p==0] = 1 # to avoid divide by zero errors
     sigma_N = T_sys / np.sqrt( 2 * deltav * t_p)
+    sigma_N[W==0] = 0
     noise = np.random.normal(0,sigma_N,(nx,ny,nz))
     noise[W==0] = 0
     return noise
@@ -147,7 +149,6 @@ def weighted_reconvolve(dT,w,W,ra,dec,nu,D_dish,gamma=1):
         #Create Gaussian kernenls to convole with:
         theta_FWHM = np.degrees( c / (nu[j]*1e6 * D_dish) )
         sigma_z = theta_FWHM/(2*np.sqrt(2*np.log(2)))
-        #sig = np.sqrt(sigma_max**2 - sigma_z**2)
         gammasig = gamma*sigma_max**2 - sigma_z**2
         gaussian = np.exp( -(r**2 + d**2)/(2*gammasig) )
         gaussian2 = gaussian**2

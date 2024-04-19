@@ -32,7 +32,7 @@ h = cosmo.H(0)/100 # use to convert astopy Mpc distances to Mpc/h
 
 v_21cm = 1420.405751#MHz
 
-def comoving_dims(ra,dec,nu,wproj,ndim=None,W=None,frame='icrs'):
+def comoving_dims(ra,dec,nu,wproj,ndim=None,W=None,dobuffer=True,frame='icrs'):
     '''Obtain lengths and origins of Cartesian comoving grid that encloses a
     sky map with (RA,Dec,nu) input coordinates for the map voxels'''
     # ndim = tuple of pixel dimensions (nx,ny,nz) use if want added to dims arrays
@@ -50,15 +50,17 @@ def comoving_dims(ra,dec,nu,wproj,ndim=None,W=None,frame='icrs'):
     # Cut core particles since only need edges of map to convert and obtain fitted grid:
     coremask = (xp>np.min(xp)) & (xp<np.max(xp)) & (yp>np.min(yp)) & (yp<np.max(yp)) & (nu_p>np.min(nu_p)) & (nu_p<np.max(nu_p))
     xp,yp,nu_p = xp[~coremask],yp[~coremask],nu_p[~coremask]
+    if dobuffer==True: buffkick = 10
+    else: buffkick = 1 # keep small buffer for random particles within voxel
     # Extend boundaries particles by 10 map pixels in all directions for a buffer
     #   since later random particles (with assignment convolution) will be kicked
     #   way beyond cell centre and can fall off grid:
-    xp[xp==np.min(xp)] -= 10
-    xp[xp==np.max(xp)] += 10
-    yp[yp==np.min(yp)] -= 10
-    yp[yp==np.max(yp)] += 10
-    nu_p[nu_p==np.min(nu_p)] -= 10*dnu
-    nu_p[nu_p==np.max(nu_p)] += 10*dnu
+    xp[xp==np.min(xp)] -= buffkick
+    xp[xp==np.max(xp)] += buffkick
+    yp[yp==np.min(yp)] -= buffkick
+    yp[yp==np.max(yp)] += buffkick
+    nu_p[nu_p==np.min(nu_p)] -= buffkick*dnu
+    nu_p[nu_p==np.max(nu_p)] += buffkick*dnu
     skycoords = pixel_to_skycoord(xp,yp,wproj)
     ra_p = skycoords.ra.degree
     dec_p = skycoords.dec.degree
@@ -130,7 +132,7 @@ def cartesian(map,ra,dec,nu,wproj=None,nside=None,W=None,ndim=None,Np=3,frame='i
     return physmap,dims,dims0
     #return physmap,counts,dims,dims0
 
-def lightcone(physmap,dims0,ra,dec,nu,wproj,W=None,Np=3,frame='icrs',verbose=False):
+def lightcone(physmap,dims0,ra,dec,nu,wproj,W=None,Np=3,frame='icrs',obsdata='2021',verbose=False):
     '''Regrid density/temp field in comoving [Mpc/h] cartesian space, into lightcone with (RA,Dec,z)'''
     ### Produce Np test particles per map voxel for regridding:
     ra_p,dec_p,nu_p = SkyPixelParticles(ra,dec,nu,wproj,map=None,W=W,Np=Np)
@@ -153,7 +155,7 @@ def lightcone(physmap,dims0,ra,dec,nu,wproj,W=None,Np=3,frame='icrs',verbose=Fal
     ra_p,dec_p,red_p = ra_p[cutmask],dec_p[cutmask],red_p[cutmask]
     ## Gather cellvals within footprint and map:
     cellvals = physmap[ixbin,iybin,izbin] # cell values associated with each particle
-    map,counts = AstropyGridding(ra_p,dec_p,red_p,nu,particleweights=cellvals,obsdata='2021')
+    map,counts = AstropyGridding(ra_p,dec_p,red_p,nu,particleweights=cellvals,obsdata=obsdata)
     # Average the map since multiple particle values may enter same pixel:
     map[map!=0] = map[map!=0]/counts[map!=0]
     if verbose==True:
@@ -333,11 +335,15 @@ def SkyCoordtoCartesian(ra_,dec_,z,ramean_arr=None,decmean_arr=None,doTile=True,
     if ramean_arr is None: ramean_arr = np.copy(ra)
     if decmean_arr is None: decmean_arr = np.copy(dec)
     if LoScentre==True: # subtract RA Dec means to align the footprint with ra=dec=0 for LoS
-        ra[ra>180] = ra[ra>180] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
-        ramean_arr[ramean_arr>180] = ramean_arr[ramean_arr>180] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
+        if np.max(np.abs(np.diff(ramean_arr,axis=0)))>300: # there are discontinuous coords with [..359,360,1..]
+            ra_discont = True
+            ra[ra>180] = ra[ra>180] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
+            ramean_arr[ramean_arr>180] = ramean_arr[ramean_arr>180] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
+        else: ra_discont = False
         ra = ra - np.mean(ramean_arr)
-        ra[ra<0] = ra[ra<0] + 360 # Reset negative coordinates to 359,360,1 convention
-        ramean_arr[ramean_arr<0] = ramean_arr[ramean_arr<0] + 360 # Reset negative coordinates to 359,360,1 convention
+        if ra_discont==True:
+            ra[ra<0] = ra[ra<0] + 360 # Reset negative coordinates to 359,360,1 convention
+            ramean_arr[ramean_arr<0] = ramean_arr[ramean_arr<0] + 360 # Reset negative coordinates to 359,360,1 convention
         dec = dec - np.mean(decmean_arr)
     #d = cosmo.comoving_distance(z).value
     d = cosmo.d_com(z)/h # [Mpc]
@@ -359,14 +365,25 @@ def mesh(x,y,z,T=None,dims=None,window='nnb',compensate=True,interlace=False,ver
     interpolation window function'''
     # window options are zeroth to 3rd order: ['ngp','cic','tsc','pcs']
     lx,ly,lz,nx,ny,nz,x0,y0,z0 = dims
+    if T is None: # Ensure particles/galaxies are outside footprint are excluded otherwise pmesh includes them!
+        xmask = (x>x0) & (x<(x0+lx))
+        ymask = (y>y0) & (y<(y0+ly))
+        zmask = (z>z0) & (z<(z0+lz))
+        mask = xmask & ymask & zmask
+        x,y,z = x[mask],y[mask],z[mask]
     if window=='ngp': window = 'nnb' # pmesh uses nnb for nearest grid point
     # Correct for pmesh half-cell shifting in output numpy array:
     Hx,Hy,Hz = lx/nx,ly/ny,lz/nz
     pos = np.swapaxes( np.array([x-x0-Hx/2,y-y0-Hy/2,z-z0-Hz/2]), 0,1)
+
     # Use pmesh to create field and paint with chosed anssigment window:
+
     pm0 = pmesh.pm.ParticleMesh(BoxSize=[lx,ly,lz], Nmesh=[nx,ny,nz])
+    #pm0 = pmesh.pm.ParticleMesh(BoxSize=[lx,ly,lz], Nmesh=[nx,ny,nz] ,resampler=window)
+
     real1 = pmesh.pm.RealField(pm0)
     real1[:] = 0
+
     counts = pm0.paint(pos, resampler=window)
     if T is not None: # assign temps (not galaxy counts) and normalise
         pm0.paint(pos, mass=T, resampler=window, hold=True, out=real1)
@@ -374,10 +391,12 @@ def mesh(x,y,z,T=None,dims=None,window='nnb',compensate=True,interlace=False,ver
         real1[counts!=0] /= counts[counts!=0]
     else: # Galaxy case, map is should just count ones
         pm0.paint(pos, mass=np.ones(len(x)), resampler=window, hold=True, out=real1)
+
     # Create binary mask (W01), required because convolved pmesh is non-zero everywhere:
     xbins,ybins,zbins = np.linspace(x0,x0+lx,nx+1),np.linspace(y0,y0+ly,ny+1),np.linspace(z0,z0+lz,nz+1)
     W01 = np.histogramdd((x,y,z),bins=(xbins,ybins,zbins))[0]
     W01[W01!=0] = 1
+
     if verbose==True:
         counts = counts.preview()
         print('\nCartesian regridding summary:')
@@ -487,11 +506,15 @@ def Cart2SphericalCoords(xcoord,ycoord,zcoord,ramean_arr,decmean_arr,frame='icrs
     distarr = cosmo.d_com(redarr)/h # [Mpc]
     z = np.interp(dist,distarr,redarr)
     # Add on RA Dec map means to unalign the phys-footprint with ra=dec=0 and align coordinates on footprint centre
-    ra[ra>180] = ra[ra>180] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
-    ramean_arr[ramean_arr>180] = ramean_arr[ramean_arr>180] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
+    if np.max(np.abs(np.diff(ramean_arr,axis=0)))>300: # there are discontinuous coords with [..359,360,1..]
+        ra_discont = True
+        ra[ra>180] = ra[ra>180] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
+        ramean_arr[ramean_arr>180] = ramean_arr[ramean_arr>180] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
+    else: ra_discont = False
     ra = ra + np.mean(ramean_arr)
-    ra[ra<0] = ra[ra<0] + 360 # Reset negative coordinates to 359,360,1 convention
-    ramean_arr[ramean_arr<0] = ramean_arr[ramean_arr<0] + 360 # Reset negative coordinates to 359,360,1 convention
+    if ra_discont==True:
+        ra[ra<0] = ra[ra<0] + 360 # Reset negative coordinates to 359,360,1 convention
+        ramean_arr[ramean_arr<0] = ramean_arr[ramean_arr<0] + 360 # Reset negative coordinates to 359,360,1 convention
     dec = dec + np.mean(decmean_arr)
     return ra,dec,z
 
@@ -537,6 +560,58 @@ def GridParticles(dims0,delta=None,W=None,Np=1):
             W_p = W[ixbin,iybin,izbin] # use to discard particles from empty pixels
             xp,yp,zp,cellvals = xp[W_p==1],yp[W_p==1],zp[W_p==1],cellvals[W_p==1]
         return xp,yp,zp,cellvals
+
+def MapTrim(ra,dec,map1,map2=None,map3=None,map4=None,ramin=334,ramax=357,decmin=-35,decmax=-26.5):
+    trimcut = (ra<ramin) + (ra>ramax) + (dec<decmin) + (dec>decmax)
+    map1[trimcut] = 0
+    if map2 is None: return map1
+    else: map2[trimcut] = 0
+    if map3 is None: return map1,map2
+    else: map3[trimcut] = 0
+    if map4 is None: return map1,map2,map3
+    else: map4[trimcut] = 0
+    return map1,map2,map3,map4
+
+'''
+def blackman_taper(map1,map2=None,map3=None,map4=None,map5=None,map6=None):
+    # Blackman window function to apply to maps to taper edges along z direction
+    nx,ny,nz = np.shape(map1)
+    blackman = np.reshape( np.tile(np.blackman(nz), (nx,ny)) , (nx,ny,nz) ) # Blackman function along every LoS
+    map1 *= blackman
+    if map2 is None: return map1
+    else: map2 *= blackman
+    if map3 is None: return map1,map2
+    else: map3 *= blackman
+    if map4 is None: return map1,map2,map3
+    else: map4 *= blackman
+    if map5 is None: return map1,map2,map3,map4
+    else: map5 *= blackman
+    if map6 is None: return map1,map2,map3,map4,map5
+    else: map6 *= blackman
+    return map1,map2,map3,map4,map5,map6
+'''
+
+def GaussianFootprintTaper(W1,W2=None):
+    # Create tapering to apply to Cartesian fields
+    # Needs to taper a conical footprint so currently using a technique that
+    #   Gaussian smooths inwards from the empty edges:
+    # Gaussian smoothing from empty edges:
+    W1_binary = np.ones(np.shape(W1))
+    W1_binary[W1==0] = 0
+    if W2 is not None:
+        W2_binary = np.ones(np.shape(W2))
+        W2_binary[W2==0] = 0
+    taper1 = np.copy(W1_binary)
+    if W2 is not None: taper2 = np.copy(W2_binary)
+    from scipy.ndimage import gaussian_filter
+    for i in range(8):
+        taper1 = gaussian_filter(taper1, sigma=1, mode='reflect')
+        taper1[W1_binary==0] = 0
+        if W2 is not None:
+            taper2 = gaussian_filter(taper2, sigma=1, mode='reflect')
+            taper2[W2_binary==0] = 0
+    if W2 is None: return taper1
+    if W2 is not None: return taper1,taper2
 
 def UniformGridParticles(dims0,delta=None,Np=2):
 
@@ -611,3 +686,123 @@ def SkyPixelParticlesOld(ra,dec,z,map=None,niter=2):
     else:
         pixvals = np.tile(pixvals[:,:,np.newaxis],(1,1,niter))
         return np.ravel(ra_p),np.ravel(dec_p),np.ravel(z_p),np.ravel(pixvals)
+
+#### LEGACY CODE - no longer needed?:
+def regrid_Steve(map,ra,dec,nu,dims0=None,wproj=None,W=None,frame='icrs'):
+
+    nx,ny,nz = np.shape(map)
+
+    if wproj==None:
+        ra_p,dec_p,nu_p = np.copy(ra),np.copy(dec),np.copy(nu)
+        pixvals = np.copy(map)
+    else:
+        ra_p,dec_p,nu_p,pixvals = SkyPixelParticles(ra,dec,nu,wproj,map=map,W=W,Np=1)
+
+    z_p = HItools.Freq2Red(nu_p)
+    #x,y,z = SkyCoordtoCartesian_OLD(ra,dec,z,frame=frame)
+    if wproj==None: x,y,z = SkyCoordtoCartesian(ra_p,dec_p,z_p,frame=frame)
+    else: x,y,z = SkyCoordtoCartesian(ra_p,dec_p,z_p,ramean_arr=ra,decmean_arr=dec,doTile=False,frame=frame)
+    if dims0==None:
+        x0,y0,z0 = np.min(x),np.min(y),np.min(z)
+        lx,ly,lz = np.max(x)-x0, np.max(y)-y0, np.max(z)-z0
+    else: lx,ly,lz,nx,ny,nz,x0,y0,z0 = dims0
+    xbins,ybins,zbins = np.linspace(x0,x0+lx,nx+1),np.linspace(y0,y0+ly,ny+1),np.linspace(z0,z0+lz,nz+1)
+    x,y,z,pixvals = np.ravel(x),np.ravel(y),np.ravel(z),np.ravel(pixvals)
+    physmap = np.histogramdd((x,y,z),bins=(xbins,ybins,zbins),weights=pixvals)[0]
+    # Average the physmap since multiple map values may enter same cartesian pixel:
+    counts = np.histogramdd((x,y,z),bins=(xbins,ybins,zbins))[0]
+    physmap[physmap!=0] = physmap[physmap!=0]/counts[physmap!=0]
+    dims = [lx,ly,lz,nx,ny,nz]
+    dims0 = [lx,ly,lz,nx,ny,nz,x0,y0,z0]
+    return physmap,dims,dims0
+
+def SkyCoordtoCartesian_OLD(ra,dec,z,doTile=True,LoScentre=True,frame='icrs'):
+    '''Convert (RA,Dec,z) sky coordinates into Cartesian (x,y,z) comoving coordinates
+    with [Mpc/h] units.
+    doTile: set True (default) if input (ra,dec,z) are coordinates of map pixels of lengths (nx,ny,nz)
+            set False if input are galaxy coordinates already with equal length (RA,Dec,z) for every input
+    LoScentre: set True (default) to align footprint with ra=dec=0 so LoS is aligned with
+                one axis (x-axis by astropy default)
+    '''
+    if LoScentre==True: # subtract RA Dec means to align the footprint with ra=dec=0 for LoS
+        noncontinuos_mask = ra>=ra[0]
+        if len(ra[noncontinuos_mask])<len(ra): # if true there is discontinuity in RA array (360->0)
+            ra[noncontinuos_mask] = ra[noncontinuos_mask] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
+            ra = ra - np.mean(ra)
+            ra[ra<0] = ra[ra<0] + 360 # Reset negative coordinates to 359,360,1 convention
+        else: ra = ra - np.mean(ra)
+        dec = dec - np.mean(dec)
+    #d = cosmo.comoving_distance(z).value
+    d = cosmo.d_com(z)/h # [Mpc]
+    # Build array in shape of map to assign each entry a Cartesian (x,y,z) coordinate:
+    if doTile==True:
+        nx,ny,nz = len(ra),len(dec),len(z)
+        ra,dec,d = np.tile(ra[:,np.newaxis,np.newaxis],(1,ny,nz)),np.tile(dec[np.newaxis,:,np.newaxis],(nx,1,nz)),np.tile(d[np.newaxis,np.newaxis,:],(nx,ny,1))
+    c = SkyCoord(ra*u.degree, dec*u.degree, d*u.Mpc, frame=frame)
+    # Astropy does x-axis as LoS by default, so below changes this
+    #   by assigning z=x, x=y, y=z
+    z,x,y = c.cartesian.x.value*h, c.cartesian.y.value*h, c.cartesian.z.value*h
+    return x,y,z
+
+def ComovingGridGalaxies(dims0,ra,dec,nu,doWeights=False,Load=False,local=False,frame='icrs'):
+    ''' Grid galaxies directy onto Cartesian comoving grid - more accurate but slower
+    approach apposed to gridding and saving the (ra,dec,z) galaxy maps then regridding
+    their pixels
+    '''
+    if Load==True:
+        if local==True: galmap,randgrid = np.load('/Users/user/Documents/MeerKAT/LauraShare/ComivingWiggleZMaps.npy')
+        if local==False: galmap,randgrid = np.load('/users/scunnington/MeerKAT/LauraShare/ComivingWiggleZMaps.npy')
+        return galmap,randgrid
+    ### Load galaxy catalogue:
+    if local==True: galcat = np.genfromtxt('/Users/user/Documents/MeerKAT/LauraShare/wigglez_reg11hrS_z0pt30_0pt50/reg11data.dat', skip_header=1)
+    if local==False: galcat = np.genfromtxt('/users/scunnington/MeerKAT/LauraShare/wigglez_reg11hrS_z0pt30_0pt50/reg11data.dat', skip_header=1)
+    ra_gal,dec_gal,z_gal = galcat[:,0],galcat[:,1],galcat[:,2]
+    zmin,zmax = HItools.Freq2Red(np.max(nu)),HItools.Freq2Red(np.min(nu))
+    z_Lband = (z_gal>zmin) & (z_gal<zmax)
+    ra_gal = ra_gal[z_Lband]
+    dec_gal = dec_gal[z_Lband]
+    z_gal = z_gal[z_Lband]
+
+    # Subtract same RA Dec map means removed in MeerKAT map to align the footprint with ra=dec=0 for LoS
+    if np.max(np.abs(np.diff(ra,axis=0)))>300: # there are discontinuous coords with [..359,360,1..]
+        ra_discont = True
+        ra[ra>180] = ra[ra>180] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
+    else: ra_discont = False
+    ra_gal = ra_gal - np.mean(ra)
+    if ra_discont==True: ra[ra<0] = ra[ra<0] + 360 # Reset negative coordinates to 359,360,1 convention
+    dec_gal = dec_gal - np.mean(dec)
+    x,y,z = SkyCoordtoCartesian(ra_gal,dec_gal,z_gal,doTile=False,LoScentre=False,frame=frame)
+    lx,ly,lz,nx,ny,nz,x0,y0,z0 = dims0
+    xbins,ybins,zbins = np.linspace(x0,x0+lx,nx+1),np.linspace(y0,y0+ly,ny+1),np.linspace(z0,z0+lz,nz+1)
+    galmap = np.histogramdd((x,y,z),bins=(xbins,ybins,zbins))[0]
+    if doWeights==False: return galmap
+    if doWeights==True:
+        if local==True: datapath = '/Users/user/Documents/MeerKAT/LauraShare/wigglez_reg11hrS_z0pt30_0pt50/'
+        if local==False: datapath = '/users/scunnington/MeerKAT/LauraShare/wigglez_reg11hrS_z0pt30_0pt50/'
+        rarand=np.empty(0)
+        decrand=np.empty(0)
+        zrand=np.empty(0)
+        Nmock = 1000 # Number of WigZ randoms to stack in selection function
+        for i in range(1,Nmock):
+            galcat = np.genfromtxt( datapath + 'reg11rand%s.dat' %'{:04d}'.format(i), skip_header=1)
+            rarand = np.append(rarand, galcat[:, 0])
+            decrand = np.append(decrand, galcat[:,1])
+            zrand = np.append(zrand, galcat[:,2])
+        z_Lband = (zrand>zmin) & (zrand<zmax)
+        rarand = rarand[z_Lband]
+        decrand = decrand[z_Lband]
+        zrand = zrand[z_Lband]
+        # Subtract same RA Dec map means removed in MeerKAT map to align the footprint with ra=dec=0 for LoS
+        if np.max(np.abs(np.diff(ra,axis=0)))>300: # there are discontinuous coords with [..359,360,1..]
+            ra_discont = True
+            ra[ra>180] = ra[ra>180] - 360 # Make continuous RA i.e. 359,360,1 -> -1,0,1 so mean RA is correct
+        else: ra_discont = False
+        rarand = rarand - np.mean(ra)
+        if ra_discont==True: ra[ra<0] = ra[ra<0] + 360 # Reset negative coordinates to 359,360,1 convention
+        decrand = decrand - np.mean(dec)
+        xrand,yrand,zrand = SkyCoordtoCartesian(rarand,decrand,zrand,doTile=False,LoScentre=False,frame=frame)
+        randgrid = np.histogramdd((xrand,yrand,zrand),bins=(xbins,ybins,zbins))[0]
+        randgrid = randgrid/Nmock # average
+        if local==True: np.save('/Users/user/Documents/MeerKAT/LauraShare/ComivingWiggleZMaps',[galmap,randgrid])
+        if local==False: np.save('/users/scunnington/MeerKAT/LauraShare/ComivingWiggleZMaps',[galmap,randgrid])
+        return galmap,randgrid

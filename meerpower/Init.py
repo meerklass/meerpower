@@ -97,6 +97,16 @@ def get2021IDs():
         dish.append("%02d" %i)
     return scan,dish
 
+def pre_process_2019Lband_CMASS_galaxies(ra_g,dec_g,z_g,ra,dec,zmin,zmax,W_HI):
+    ramin_CMASS,ramax_CMASS = np.min(ra[np.mean(W_HI,2)>0]),np.max(ra[np.mean(W_HI,2)>0])
+    decmin_CMASS,decmax_CMASS = np.min(dec[np.mean(W_HI,2)>0]),np.max(dec[np.mean(W_HI,2)>0])
+    MKcut = (ra_g>ramin_CMASS) & (ra_g<ramax_CMASS) & (dec_g>decmin_CMASS) & (dec_g<decmax_CMASS) & (z_g>zmin) & (z_g<zmax)
+    cornercut_lim1 = 146 # set low to turn off
+    cornercut_lim2 = 172.5 # set high to turn off
+    cornercut = (ra_g - dec_g > cornercut_lim1) & (ra_g - dec_g < cornercut_lim2)
+    CMASSgalmask = MKcut & cornercut
+    return ra_g[CMASSgalmask],dec_g[CMASSgalmask],z_g[CMASSgalmask]
+
 def cal_freq(ch):
     # Function from Jingying Wang to get L-band channel frequencies
     v_min=856.0

@@ -62,14 +62,15 @@ def getpkspec(f1,f2,dims,corrtype='HIauto',w1=None,w2=None,W1=None,W2=None,Ngal=
         return Vcell / np.sum(w1*w2) * (pkspec-S) # Normalisation with windows is NOT needed
     if corrtype=='Galauto':
 
-        S = Ngal * np.sum(w1**2*W1) # shot-noise term
-        #S = Ngal * np.sum(W1) # shot-noise term
-
         Wk1 = np.fft.rfftn(w1*W1)
         F1k = np.fft.rfftn(w1*f1) - Ngal*Wk1
         Wk2 = np.fft.rfftn(w2*W2)
         F2k = np.fft.rfftn(w2*f2) - Ngal*Wk2
         pkspec = np.real( F1k * np.conj(F2k) )
+
+        S = Ngal * np.sum(w1**2*W1) * np.ones(np.shape(pkspec)) # shot-noise term
+        S /= model.W_mas(dims,window='ngp')**2
+
         return Vcell / np.sum(w1*w2*W1*W2) * (pkspec-S) * 1/(Ngal**2) # Normalisation with windows is needed
 
     if corrtype=='Cross':
@@ -108,72 +109,6 @@ def binpk(pkspec,dims,kbins,kcuts=None,FullPk=False,doindep=True):
         if (nmodes[ik] > 0): #if nmodes==0 for this k then remains Pk=0
             pk[ik] = np.nanmean(pkspec[ikbin==ik+1])
     return pk,k,nmodes
-
-'''
-def binpk_int(pkspec,dims,kbins,kcuts=None,FullPk=False,doindep=True,interlace=False):
-    #### Bin 3D power spectrum in angle-averaged bins
-    lx,ly,lz,nx,ny,nz = dims
-    kspec,muspec,indep = getkspec(dims,FullPk)
-    if kcuts is not None: # Remove kspec outside kcut range to exclude from bin average:
-        kperp,kpara,indep_perp,indep_para = getkspec2D(dims,FullPk)
-        kperpcutmin,kperpcutmax,kparacutmin,kparacutmax = kcuts
-        kspec[(kperp<kperpcutmin)] = np.nan
-        kspec[(kperp>kperpcutmax)] = np.nan
-        kspec[(kpara<kparacutmin)] = np.nan
-        kspec[(kpara>kparacutmax)] = np.nan
-    if doindep==True:
-        pkspec = pkspec[indep==True]
-        kspec = kspec[indep==True]
-
-
-    ikbin = np.digitize(kspec,kbins)
-    nkbin = len(kbins)-1
-    pk,k,nmodes = np.zeros(nkbin),np.zeros(nkbin),np.zeros(nkbin,dtype=int)
-    if interlace==False:
-        for ik in range(nkbin):
-            nmodes[ik] = int(np.sum(np.array([ikbin==ik+1])))
-            k[ik] = np.mean( kspec[ikbin==ik+1] ) # average k-bin value for notional k
-            if (nmodes[ik] > 0): #if nmodes==0 for this k then remains Pk=0
-                pk[ik] = np.mean(pkspec[ikbin==ik+1])
-
-    if interlace==True:
-        nyqx,nyqy,nyqz = nx*np.pi/lx,ny*np.pi/ly,nz*np.pi/lz
-        kx = 2*np.pi*np.fft.fftfreq(nx,d=lx/nx)
-        ky = 2*np.pi*np.fft.fftfreq(ny,d=ly/ny)
-        if FullPk==True: kz = 2*np.pi*np.fft.fftfreq(nz,d=lz/nz)
-        else: kz = 2*np.pi*np.fft.fftfreq(nz,d=lz/nz)[:int(nz/2)+1]
-        shiftarray = np.linspace(-1,1,3) # integer vectors by which to nudge the nyquist freq.
-        pk2 = np.zeros(nkbin)
-        for ik in range(nkbin):
-            nmodes[ik] = int(np.sum(np.array([ikbin==ik+1])))
-            k[ik] = np.mean( kspec[ikbin==ik+1] ) # average k-bin value for notional k
-            for ix in shiftarray:
-                for iy in shiftarray:
-                    for iz in shiftarray:
-                        print(nyqx,nyqy,nyqz)
-                        kx1 = kx + 2*nyqx*ix
-                        ky1 = ky + 2*nyqy*iy
-                        kz1 = kz + 2*nyqz*iz
-                        #kspec1 = np.sqrt(kx1**2 + ky1**2 + kz1**2)
-                        kspec1 = np.sqrt(kx1[:,np.newaxis,np.newaxis]**2 + ky1[np.newaxis,:,np.newaxis]**2 + kz1[np.newaxis,np.newaxis,:]**2)
-
-                        if doindep==True: kspec1 = kspec1[indep==True]
-                        ikbin1 = np.digitize(kspec1,kbins)
-                        print(ikbin1)
-
-                        print(np.min(kspec),np.max(kspec))
-                        print(np.min(kspec1),np.max(kspec1))
-
-                        #print(np.shape(pkspec[ikbin1==ik+1]))
-                        print(pkspec[ikbin1==ik+1])
-                        exit()
-
-
-                        #pk2[ik] = np.append( pk2[ik] , (-1)**(ix+iy+iz) * np.sum(pkspec[ikbin1==ik+1]) )
-            pk[ik] = np.mean( np.append( pkspec[ikbin==ik+1], pk2[ik] ) )
-
-    return pk,k,nmodes
-'''
 
 def binpk2D(pkspec,dims,kperpbins,kparabins,FullPk=False,doindep=True):
     kperpspec,kparaspec,indep_perp,indep_para = getkspec2D(dims,FullPk)
@@ -285,7 +220,7 @@ def getkspec2D(dims,do2D=False,FullPk=False,doindep=True):
 # polynomials.                                                         #
 ########################################################################
 
-def binpole(pkspec,dims,kbins,k_FG=0,FullPk=False,doindep=True):
+def binpole(pkspec,dims,kbins,FullPk=False,doindep=True):
     lx,ly,lz,nx,ny,nz = dims
     kspec,muspec,indep = getkspec(dims,FullPk)
     if doindep==True:
@@ -301,9 +236,6 @@ def binpole(pkspec,dims,kbins,k_FG=0,FullPk=False,doindep=True):
         nmodes[ik] = int(np.sum(np.array([ikbin==ik+1])))
         k[ik] = np.mean( kspec[ikbin==ik+1] ) # average k-bin value for notional k
         if (nmodes[ik] > 0):
-            if k_FG>0: # Cut foreground contaminated modes
-                mu_FG = k_FG/k[ik]
-                pkspec[muspec<mu_FG] = 0
             pk0[ik] = np.mean(pkspec[ikbin==ik+1])
             pk2[ik] = 5*np.mean((pkspec*leg2spec)[ikbin==ik+1])
             pk4[ik] = 9*np.mean((pkspec*leg4spec)[ikbin==ik+1])
