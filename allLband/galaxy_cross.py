@@ -358,7 +358,8 @@ def RunPipeline(survey,gal_cat,N_fg,gamma=1.4,kcuts=None,do2DTF=False,doHIauto=F
                                                         w_HI_rg=w_HI_rg,W_HI_rg=W_HI_rg,w_g_rg=w_g_rg,W_g_rg=W_g_rg,kcuts=kcuts,
                                                         taper_HI=taper_HI,taper_g=taper_g,LoadTF=LoadTF)
         if doHIauto==True:
-            TFfile = '/idia/projects/hi_im/meerpower/'+survey+'Lband/'+gal_cat+'/TFdata/T_HIauto_Nfg=%s_gamma=%s_'%(N_fg,gamma_label)+kcuts_label
+            #TFfile = '/idia/projects/hi_im/meerpower/'+survey+'Lband/'+gal_cat+'/TFdata/T_HIauto_Nfg=%s_gamma=%s_'%(N_fg,gamma_label)+kcuts_label
+            TFfile = '/idia/projects/hi_im/meerpower/'+survey+'Lband/'+gal_cat+'/TFdata/T_HIauto_Nfg=%s_gamma=%s_'%(N_fg,gamma_label)+kcuts_label+'_tukeyHI=%s'%tukey_alpha
             T_wsub_i, T_nosub_i,k  = foreground.TransferFunction(MKmap_unsmoothed,Nmock,N_fg,'HIauto',kbins,k,TFfile,ra,dec,nu,wproj,dims0_rg,
                                                         Np,window,compensate,interlace,mockfilepath_HI,mockfilepath_g,gal_cat=gal_cat,
                                                         gamma=gamma,D_dish=D_dish,w_HI=w_HI,W_HI=W_HI,doWeightFGclean=True,PCAMeanCentre=True,
@@ -368,7 +369,8 @@ def RunPipeline(survey,gal_cat,N_fg,gamma=1.4,kcuts=None,do2DTF=False,doHIauto=F
         kperpbins = np.linspace(0.008,0.3,34)
         kparabins = np.linspace(0.003,0.6,22)
         if doHIauto==False:
-            TFfile = '/idia/projects/hi_im/meerpower/'+survey+'Lband/'+gal_cat+'/TFdata/T2D_Nfg=%s_gamma=%s_'%(N_fg,gamma_label)
+            #TFfile = '/idia/projects/hi_im/meerpower/'+survey+'Lband/'+gal_cat+'/TFdata/T2D_Nfg=%s_gamma=%s_'%(N_fg,gamma_label)
+            TFfile = '/idia/projects/hi_im/meerpower/'+survey+'Lband/'+gal_cat+'/TFdata/T2D_Nfg=%s_gamma=%s_'%(N_fg,gamma_label)+'tukeyHI=%s'%tukey_alpha
             T2d_wsub_i, T2d_nosub_i,k2d  = foreground.TransferFunction(MKmap_unsmoothed,Nmock,N_fg,'Cross',kbins,k,TFfile,ra,dec,nu,wproj,dims0_rg,
                                                         Np,window,compensate,interlace,mockfilepath_HI,mockfilepath_g,gal_cat=gal_cat,
                                                         gamma=gamma,D_dish=D_dish,w_HI=w_HI,W_HI=W_HI,doWeightFGclean=True,PCAMeanCentre=True,
@@ -403,15 +405,16 @@ N_fgs = [10,8,12,6,5,7,9,11,13,14,15,16,17,18,19,20]
 #if gal_cat=='gama': kcuts = [0.052,0.031,0.175,None] #[kperpmin,kparamin,kperpmax,kparamax] (exclude areas of k-space from spherical average)
 kcuts = [0.052,0.031,0.175,None] #[kperpmin,kparamin,kperpmax,kparamax] (exclude areas of k-space from spherical average)
 
-#kcuts = None
+kcuts = None
 
-'''
-tukey_alpha = 0.1
+#'''
+tukey_alpha = 1
 for i in range(len(N_fgs)):
-    RunPipeline(survey,gal_cat,N_fgs[i],kcuts=kcuts,do2DTF=do2DTF,doHIauto=doHIauto)
-'''
+    RunPipeline(survey,gal_cat,N_fgs[i],kcuts=kcuts,do2DTF=do2DTF,doHIauto=doHIauto,tukey_alpha=tukey_alpha)
+exit()
+#'''
 
 N_fg = 10
-tukey_alphas = [0.5,0.1,0.2,0.8,1]
+tukey_alphas = [0.1,0.5,0.2,1,0.8]
 for i in range(len(tukey_alphas)):
     RunPipeline(survey,gal_cat,N_fg,kcuts=kcuts,do2DTF=do2DTF,doHIauto=doHIauto,tukey_alpha=tukey_alphas[i])
